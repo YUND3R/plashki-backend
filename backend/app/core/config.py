@@ -41,6 +41,30 @@ class Settings(BaseSettings):
         ge=1,
         validation_alias=AliasChoices("ACCESS_TOKEN_EXPIRE_MINUTES"),
     )
+    auth_cookie_name: str = Field(
+        default="plashki_access_token",
+        validation_alias=AliasChoices("AUTH_COOKIE_NAME"),
+    )
+    auth_cookie_domain: str = Field(
+        default="",
+        validation_alias=AliasChoices("AUTH_COOKIE_DOMAIN"),
+    )
+    auth_cookie_secure: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("AUTH_COOKIE_SECURE"),
+    )
+    auth_cookie_samesite: Literal["lax", "strict", "none"] = Field(
+        default="lax",
+        validation_alias=AliasChoices("AUTH_COOKIE_SAMESITE"),
+    )
+    csrf_cookie_name: str = Field(
+        default="plashki_csrf_token",
+        validation_alias=AliasChoices("CSRF_COOKIE_NAME"),
+    )
+    csrf_header_name: str = Field(
+        default="X-CSRF-Token",
+        validation_alias=AliasChoices("CSRF_HEADER_NAME"),
+    )
 
     upload_dir: str = Field(
         default="uploads",
@@ -117,9 +141,30 @@ class Settings(BaseSettings):
     def validate_production_jwt_secret(self) -> "Settings":
         if self.environment != "production":
             return self
-        if self.jwt_secret_key.strip() and len(self.jwt_secret_key.strip()) < 32:
+        secret = self.jwt_secret_key.strip()
+        if not secret:
+            raise ValueError(
+                "JWT_SECRET_KEY (или SECRET_KEY) обязателен в production"
+            )
+        if len(secret) < 32:
             raise ValueError(
                 "JWT_SECRET_KEY (или SECRET_KEY) в production — не короче 32 символов"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_production_auth_links(self) -> "Settings":
+        if self.environment != "production":
+            return self
+        if not self.frontend_verify_email_url.strip():
+            raise ValueError(
+                "FRONTEND_VERIFY_EMAIL_URL обязателен в production, "
+                "чтобы не передавать секреты подтверждения email в URL API."
+            )
+        if not self.frontend_reset_password_url.strip():
+            raise ValueError(
+                "FRONTEND_RESET_PASSWORD_URL обязателен в production, "
+                "чтобы не передавать секреты сброса пароля в URL API."
             )
         return self
 
@@ -145,6 +190,12 @@ class Settings(BaseSettings):
     @property
     def alert_email_list(self) -> list[str]:
         return [email.strip() for email in self.alert_email_to.split(",") if email.strip()]
+
+    @property
+    def auth_cookie_secure_effective(self) -> bool:
+        if self.environment == "production":
+            return True
+        return self.auth_cookie_secure
 
 
 settings = Settings()

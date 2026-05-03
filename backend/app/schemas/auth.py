@@ -78,9 +78,8 @@ class MessageResponse(BaseModel):
     message: str
 
 
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
+class AuthSessionResponse(BaseModel):
+    message: str
 
 
 class PatchMeProfileBody(BaseModel):
@@ -118,3 +117,15 @@ class AdminUserAccessResponse(BaseModel):
     id: uuid.UUID
     role: Role
     subscription: Subscription
+
+
+class AdminRegisteredUser(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    username: str
+    first_name: str
+    email: str
+    role: Role
+    subscription: Subscription
+    created_at: datetime

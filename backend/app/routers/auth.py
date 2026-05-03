@@ -1,4 +1,5 @@
 import html
+import secrets
 import uuid
 from typing import Annotated
 
@@ -11,6 +12,7 @@ from fastapi import (
     Path,
     Query,
     Request,
+    Response,
     UploadFile,
 )
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -22,12 +24,12 @@ from app.db.session import get_session
 from app.deps.auth import get_current_user_id
 from app.db.models import UserProfile
 from app.schemas.auth import (
+    AuthSessionResponse,
     ForgotPasswordBody,
     LoginBody,
     MessageResponse,
     PatchMeProfileBody,
     ResetPasswordBody,
-    TokenResponse,
     UserMe,
     VerifyEmailBody,
 )
@@ -41,6 +43,57 @@ from app.services.email_verification_links import build_email_verification_link
 from app.services.photo_storage import remove_stored_file_if_ours, save_image_upload
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+def _auth_cookie_domain() -> str | None:
+    domain = settings.auth_cookie_domain.strip()
+    return domain or None
+
+
+def _set_access_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        key=settings.auth_cookie_name,
+        value=token,
+        max_age=settings.access_token_expire_minutes * 60,
+        httponly=True,
+        secure=settings.auth_cookie_secure_effective,
+        samesite=settings.auth_cookie_samesite,
+        path="/",
+        domain=_auth_cookie_domain(),
+    )
+
+
+def _new_csrf_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def _set_csrf_cookie(response: Response, csrf_token: str) -> None:
+    response.set_cookie(
+        key=settings.csrf_cookie_name,
+        value=csrf_token,
+        max_age=settings.access_token_expire_minutes * 60,
+        httponly=False,
+        secure=settings.auth_cookie_secure_effective,
+        samesite=settings.auth_cookie_samesite,
+        path="/",
+        domain=_auth_cookie_domain(),
+    )
+
+
+def _clear_access_cookie(response: Response) -> None:
+    response.delete_cookie(
+        key=settings.auth_cookie_name,
+        path="/",
+        domain=_auth_cookie_domain(),
+    )
+
+
+def _clear_csrf_cookie(response: Response) -> None:
+    response.delete_cookie(
+        key=settings.csrf_cookie_name,
+        path="/",
+        domain=_auth_cookie_domain(),
+    )
 
 
 def _email_verify_browser_response(
@@ -99,7 +152,7 @@ def _email_verify_browser_response(
         "Роль всегда USER. Форма **multipart/form-data**: поля username, email, password, "
         "first_name, last_name; опционально файл **avatar** (JPEG, PNG, WebP, GIF). "
         "На email — ссылка с HMAC-подписью (фронт: только hash-фрагмент #vid=&sig=, без утечки в access-log при открытии); "
-        "**JWT** — после POST /auth/verify-email или входа."
+        "сессия ставится cookie после POST /auth/verify-email или входа."
     ),
 )
 async def register(
@@ -197,13 +250,14 @@ async def register(
 
 @router.post(
     "/login",
-    response_model=TokenResponse,
-    summary="Вход: логин или email + пароль → JWT",
+    response_model=AuthSessionResponse,
+    summary="Вход: логин или email + пароль → сессия в HttpOnly cookie",
 )
 async def login(
     body: LoginBody,
+    response: Response,
     session: AsyncSession = Depends(get_session),
-) -> TokenResponse:
+) -> AuthSessionResponse:
     user = await auth_login_service.authenticate_by_login_or_email(
         session, body.login, body.password
     )
@@ -221,7 +275,10 @@ async def login(
             ),
         )
     token = create_access_token(user_id=user.id)
-    return TokenResponse(access_token=token)
+    csrf_token = _new_csrf_token()
+    _set_access_cookie(response, token)
+    _set_csrf_cookie(response, csrf_token)
+    return AuthSessionResponse(message="Вы успешно вошли в аккаунт.")
 
 
 @router.get(
@@ -273,13 +330,14 @@ async def verify_email_get(
 
 @router.post(
     "/verify-email",
-    response_model=TokenResponse,
-    summary="Подтвердить email: token_id+signature (или устар. code/token)",
+    response_model=AuthSessionResponse,
+    summary="Подтвердить email и открыть сессию в cookie",
 )
 async def verify_email(
     body: VerifyEmailBody,
+    response: Response,
     session: AsyncSession = Depends(get_session),
-) -> TokenResponse:
+) -> AuthSessionResponse:
     if body.token_id is not None and body.signature:
         result, user = await email_verification_service.verify_email_by_signed_link(
             session, token_id=body.token_id, signature=body.signature
@@ -291,7 +349,11 @@ async def verify_email(
     else:
         raise HTTPException(status_code=422, detail="Нужны token_id и signature или code.")
     if result == "ok" and user is not None:
-        return TokenResponse(access_token=create_access_token(user_id=user.id))
+        token = create_access_token(user_id=user.id)
+        csrf_token = _new_csrf_token()
+        _set_access_cookie(response, token)
+        _set_csrf_cookie(response, csrf_token)
+        return AuthSessionResponse(message="Email подтверждён. Вы вошли в аккаунт.")
     if result == "conflict":
         raise HTTPException(
             status_code=409,
@@ -300,6 +362,20 @@ async def verify_email(
     if result == "expired_token":
         raise HTTPException(status_code=400, detail="Ссылка подтверждения просрочена.")
     raise HTTPException(status_code=400, detail="Неверный токен подтверждения.")
+
+
+@router.post(
+    "/logout",
+    response_model=MessageResponse,
+    summary="Выход: очистить auth cookie",
+)
+async def logout(
+    response: Response,
+    _user_id: uuid.UUID = Depends(get_current_user_id),
+) -> MessageResponse:
+    _clear_access_cookie(response)
+    _clear_csrf_cookie(response)
+    return MessageResponse(message="Вы успешно вышли из аккаунта.")
 
 
 @router.post(

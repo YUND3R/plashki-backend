@@ -1,5 +1,6 @@
 import uuid
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import Role, Subscription
@@ -98,3 +99,18 @@ async def admin_update_user_access(
     await session.commit()
     await session.refresh(user)
     return None, user
+
+
+async def admin_list_registered_users(
+    session: AsyncSession,
+    *,
+    requester_id: uuid.UUID,
+) -> tuple[str | None, list[UserProfile]]:
+    requester = await session.get(UserProfile, requester_id)
+    if requester is None or requester.role != Role.ADMIN:
+        return "not_admin", []
+
+    result = await session.execute(
+        select(UserProfile).order_by(UserProfile.created_at.asc())
+    )
+    return None, list(result.scalars().all())

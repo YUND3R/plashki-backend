@@ -11,6 +11,7 @@ from starlette.staticfiles import StaticFiles
 from app.core.config import settings
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.core.role import (
+    admin_list_registered_users,
     admin_update_user_access,
     delete_moderator_role_from_user,
     delete_sponsor_role_from_user,
@@ -44,7 +45,11 @@ from app.schemas.lobby import (
     SetLobbyMemberDisplayPhotoBody,
     SwapLobbySeatsBody,
 )
-from app.schemas.auth import AdminUpdateUserAccessBody, AdminUserAccessResponse
+from app.schemas.auth import (
+    AdminRegisteredUser,
+    AdminUpdateUserAccessBody,
+    AdminUserAccessResponse,
+)
 from app.services.gomafia_import import import_gomafia_tournament_to_lobbies
 from app.services.lobby import (
     add_card_to_lobby,
@@ -581,6 +586,28 @@ async def admin_patch_user_access(
         role=user.role,
         subscription=user.subscription,
     )
+
+
+@app.get(
+    "/admin/users",
+    tags=["admin"],
+    response_model=list[AdminRegisteredUser],
+    summary="Список всех зарегистрированных пользователей (только ADMIN)",
+)
+async def admin_get_registered_users(
+    session: AsyncSession = Depends(get_session),
+    requester_id: uuid.UUID = Depends(get_current_user_id),
+) -> list[AdminRegisteredUser]:
+    err, users = await admin_list_registered_users(
+        session,
+        requester_id=requester_id,
+    )
+    if err == "not_admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Только ADMIN может смотреть список пользователей.",
+        )
+    return [AdminRegisteredUser.model_validate(user) for user in users]
 
 
 @app.post(
