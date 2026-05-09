@@ -144,6 +144,45 @@ def _email_verify_browser_response(
     )
 
 
+def _build_action_email_html(
+    *,
+    title: str,
+    intro: str,
+    action_text: str,
+    action_url: str,
+) -> str:
+    esc_title = html.escape(title)
+    esc_intro = html.escape(intro)
+    esc_action_text = html.escape(action_text)
+    esc_action_url = html.escape(action_url)
+    return (
+        "<!DOCTYPE html>"
+        "<html lang=\"ru\">"
+        "<head>"
+        "<meta charset=\"utf-8\"/>"
+        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/>"
+        f"<title>{esc_title}</title>"
+        "</head>"
+        "<body style=\"margin:0;padding:0;background:#f5f7fb;font-family:Arial,sans-serif;color:#1f2937;\">"
+        "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" "
+        "style=\"padding:24px 12px;\">"
+        "<tr><td align=\"center\">"
+        "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" "
+        "style=\"max-width:560px;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;\">"
+        "<tr><td style=\"padding:28px 28px 12px;\">"
+        f"<h1 style=\"margin:0 0 12px;font-size:22px;line-height:1.3;color:#111827;\">{esc_title}</h1>"
+        f"<p style=\"margin:0 0 18px;font-size:15px;line-height:1.6;\">{esc_intro}</p>"
+        "<p style=\"margin:0 0 22px;\">"
+        f"<a href=\"{esc_action_url}\" "
+        "style=\"display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;"
+        "padding:12px 18px;border-radius:8px;font-size:14px;font-weight:600;\">"
+        f"{esc_action_text}</a></p>"
+        "</td></tr></table>"
+        "</td></tr></table>"
+        "</body></html>"
+    )
+
+
 @router.post(
     "/register",
     response_model=MessageResponse,
@@ -225,10 +264,17 @@ async def register(
             f"Перейдите по ссылке:\n{verify_link}\n\n"
             f"Ссылка действует {settings.email_verification_token_ttl_minutes} минут."
         )
+        email_html = _build_action_email_html(
+            title="Подтверждение email в Plashki",
+            intro="Завершите регистрацию: подтвердите email по кнопке ниже.",
+            action_text="Подтвердить email",
+            action_url=verify_link,
+        )
         sent = alert_service.send_email(
             to_email=pending.email,
             subject="Подтверждение email — Plashki",
             body=email_body,
+            html_body=email_html,
         )
         if not sent:
             alert_service.send_warning(
@@ -413,11 +459,18 @@ async def resend_verification(
         f"Перейдите по ссылке:\n{verify_link}\n\n"
         f"Ссылка действует {settings.email_verification_token_ttl_minutes} минут."
     )
+    email_html = _build_action_email_html(
+        title="Подтверждение email в Plashki",
+        intro="Нажмите кнопку ниже, чтобы подтвердить email.",
+        action_text="Подтвердить email",
+        action_url=verify_link,
+    )
 
     sent = alert_service.send_email(
         to_email=to_email,
         subject="Подтверждение email — Plashki",
         body=email_body,
+        html_body=email_html,
     )
     if not sent:
         alert_service.send_warning(
@@ -453,11 +506,18 @@ async def forgot_password(
         f"Перейдите по ссылке:\n{reset_link}\n\n"
         f"Ссылка действует {settings.reset_token_ttl_minutes} минут."
     )
+    email_html = _build_action_email_html(
+        title="Сброс пароля в Plashki",
+        intro="Мы получили запрос на сброс пароля. Подтвердите действие по кнопке ниже.",
+        action_text="Сбросить пароль",
+        action_url=reset_link,
+    )
 
     sent = alert_service.send_email(
         to_email=user.email,
         subject="Сброс пароля Plashki",
         body=email_body,
+        html_body=email_html,
     )
     if not sent:
         alert_service.send_warning(
