@@ -4,6 +4,7 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.staticfiles import StaticFiles
@@ -1193,11 +1194,26 @@ async def patch_lobby_member(
     return lobby
 
 
+def _raise_lobby_host_mutation_error(err: str | None) -> None:
+    if err == "lobby_not_found":
+        raise HTTPException(status_code=404, detail="Лобби не найдено")
+    if err == "not_host":
+        raise HTTPException(
+            status_code=403,
+            detail="Менять роли и статусы может только хост лобби.",
+        )
+    if err == "membership_not_found":
+        raise HTTPException(
+            status_code=404,
+            detail="Место не найдено в этом лобби.",
+        )
+
+
 @app.patch(
     "/lobbies/{lobby_id}/members/{membership_id}/game-role",
     tags=["lobbies"],
     response_model=GameLobbyPublic,
-    summary="Назначить игровую роль на место в лобби (по membership_id)",
+    summary="Назначить игровую роль на место в лобби (по membership_id, только хост)",
     description="У каждого места своя роль — при дублях одной карточки роли могут различаться. **membership_id** из GET лобби.",
 )
 async def patch_member_game_role(
@@ -1205,15 +1221,13 @@ async def patch_member_game_role(
     membership_id: uuid.UUID,
     body: SetGameRoleBody,
     session: AsyncSession = Depends(get_session),
+    acting_user_id: uuid.UUID = Depends(get_current_user_id),
 ) -> GameLobbyPublic:
-    lobby = await set_membership_game_role_for_seat(
-        session, lobby_id, membership_id, body.game_role
+    err, lobby = await set_membership_game_role_for_seat(
+        session, lobby_id, membership_id, body.game_role, acting_user_id
     )
-    if lobby is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Лобби не найдено или место не принадлежит этому лобби.",
-        )
+    _raise_lobby_host_mutation_error(err)
+    assert lobby is not None
     return lobby
 
 
@@ -1221,19 +1235,19 @@ async def patch_member_game_role(
     "/lobbies/{lobby_id}/members/{membership_id}/game-role",
     tags=["lobbies"],
     response_model=GameLobbyPublic,
-    summary="Сбросить игровую роль на месте в лобби (по membership_id)",
+    summary="Сбросить игровую роль на месте в лобби (по membership_id, только хост)",
 )
 async def delete_member_game_role(
     lobby_id: uuid.UUID,
     membership_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
+    acting_user_id: uuid.UUID = Depends(get_current_user_id),
 ) -> GameLobbyPublic:
-    lobby = await clear_membership_game_role_for_seat(session, lobby_id, membership_id)
-    if lobby is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Лобби не найдено или место не принадлежит этому лобби.",
-        )
+    err, lobby = await clear_membership_game_role_for_seat(
+        session, lobby_id, membership_id, acting_user_id
+    )
+    _raise_lobby_host_mutation_error(err)
+    assert lobby is not None
     return lobby
 
 
@@ -1264,7 +1278,7 @@ async def delete_all_lobby_game_roles(
     "/lobbies/{lobby_id}/player-cards/{player_card_id}/game-role",
     tags=["lobbies"],
     response_model=GameLobbyPublic,
-    summary="Назначить игровую роль по карточке (одно место при дублях — последнее по времени)",
+    summary="Назначить игровую роль по карточке (только хост)",
     description="Если одна карточка в лобби несколько раз, используйте **PATCH …/members/{membership_id}/game-role**.",
 )
 async def patch_player_game_role(
@@ -1272,15 +1286,13 @@ async def patch_player_game_role(
     player_card_id: uuid.UUID,
     body: SetGameRoleBody,
     session: AsyncSession = Depends(get_session),
+    acting_user_id: uuid.UUID = Depends(get_current_user_id),
 ) -> GameLobbyPublic:
-    lobby = await set_membership_game_role(
-        session, lobby_id, player_card_id, body.game_role
+    err, lobby = await set_membership_game_role(
+        session, lobby_id, player_card_id, body.game_role, acting_user_id
     )
-    if lobby is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Лобби не найдено или игрок не состоит в нём.",
-        )
+    _raise_lobby_host_mutation_error(err)
+    assert lobby is not None
     return lobby
 
 
@@ -1288,20 +1300,20 @@ async def patch_player_game_role(
     "/lobbies/{lobby_id}/player-cards/{player_card_id}/game-role",
     tags=["lobbies"],
     response_model=GameLobbyPublic,
-    summary="Сбросить роль по карточке (одно место при дублях — последнее по времени)",
+    summary="Сбросить роль по карточке (только хост)",
     description="При дублях карточки — **DELETE …/members/{membership_id}/game-role**.",
 )
 async def delete_player_game_role(
     lobby_id: uuid.UUID,
     player_card_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
+    acting_user_id: uuid.UUID = Depends(get_current_user_id),
 ) -> GameLobbyPublic:
-    lobby = await clear_membership_game_role(session, lobby_id, player_card_id)
-    if lobby is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Лобби не найдено или игрок не состоит в нём.",
-        )
+    err, lobby = await clear_membership_game_role(
+        session, lobby_id, player_card_id, acting_user_id
+    )
+    _raise_lobby_host_mutation_error(err)
+    assert lobby is not None
     return lobby
 
 
@@ -1309,7 +1321,7 @@ async def delete_player_game_role(
     "/lobbies/{lobby_id}/members/{membership_id}/status",
     tags=["lobbies"],
     response_model=GameLobbyPublic,
-    summary="Назначить статус на место в игровом лобби (по membership_id)",
+    summary="Назначить статус на место в игровом лобби (по membership_id, только хост)",
     description="У каждого места свой статус. **membership_id** берите из GET лобби.",
 )
 async def patch_member_status(
@@ -1317,15 +1329,13 @@ async def patch_member_status(
     membership_id: uuid.UUID,
     body: SetLobbyStatusBody,
     session: AsyncSession = Depends(get_session),
+    acting_user_id: uuid.UUID = Depends(get_current_user_id),
 ) -> GameLobbyPublic:
-    lobby = await set_membership_status_for_seat(
-        session, lobby_id, membership_id, body.status
+    err, lobby = await set_membership_status_for_seat(
+        session, lobby_id, membership_id, body.status, acting_user_id
     )
-    if lobby is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Лобби не найдено или место не принадлежит этому лобби.",
-        )
+    _raise_lobby_host_mutation_error(err)
+    assert lobby is not None
     return lobby
 
 
@@ -1333,19 +1343,19 @@ async def patch_member_status(
     "/lobbies/{lobby_id}/members/{membership_id}/status",
     tags=["lobbies"],
     response_model=GameLobbyPublic,
-    summary="Сбросить статус на месте в игровом лобби (по membership_id)",
+    summary="Сбросить статус на месте в игровом лобби (по membership_id, только хост)",
 )
 async def delete_member_status(
     lobby_id: uuid.UUID,
     membership_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
+    acting_user_id: uuid.UUID = Depends(get_current_user_id),
 ) -> GameLobbyPublic:
-    lobby = await clear_membership_status_for_seat(session, lobby_id, membership_id)
-    if lobby is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Лобби не найдено или место не принадлежит этому лобби.",
-        )
+    err, lobby = await clear_membership_status_for_seat(
+        session, lobby_id, membership_id, acting_user_id
+    )
+    _raise_lobby_host_mutation_error(err)
+    assert lobby is not None
     return lobby
 
 
@@ -1376,7 +1386,7 @@ async def delete_all_lobby_statuses(
     "/lobbies/{lobby_id}/player-cards/{player_card_id}/status",
     tags=["lobbies"],
     response_model=GameLobbyPublic,
-    summary="Назначить статус по карточке (одно место при дублях — последнее по времени)",
+    summary="Назначить статус по карточке (только хост)",
     description="Если одна карточка в лобби несколько раз, используйте **PATCH …/members/{membership_id}/status**.",
 )
 async def patch_player_status(
@@ -1384,15 +1394,13 @@ async def patch_player_status(
     player_card_id: uuid.UUID,
     body: SetLobbyStatusBody,
     session: AsyncSession = Depends(get_session),
+    acting_user_id: uuid.UUID = Depends(get_current_user_id),
 ) -> GameLobbyPublic:
-    lobby = await set_membership_status(
-        session, lobby_id, player_card_id, body.status
+    err, lobby = await set_membership_status(
+        session, lobby_id, player_card_id, body.status, acting_user_id
     )
-    if lobby is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Лобби не найдено или игрок не состоит в нём.",
-        )
+    _raise_lobby_host_mutation_error(err)
+    assert lobby is not None
     return lobby
 
 
@@ -1400,20 +1408,20 @@ async def patch_player_status(
     "/lobbies/{lobby_id}/player-cards/{player_card_id}/status",
     tags=["lobbies"],
     response_model=GameLobbyPublic,
-    summary="Сбросить статус по карточке (одно место при дублях — последнее по времени)",
+    summary="Сбросить статус по карточке (только хост)",
     description="При дублях карточки — **DELETE …/members/{membership_id}/status**.",
 )
 async def delete_player_status(
     lobby_id: uuid.UUID,
     player_card_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
+    acting_user_id: uuid.UUID = Depends(get_current_user_id),
 ) -> GameLobbyPublic:
-    lobby = await clear_membership_status(session, lobby_id, player_card_id)
-    if lobby is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Лобби не найдено или игрок не состоит в нём.",
-        )
+    err, lobby = await clear_membership_status(
+        session, lobby_id, player_card_id, acting_user_id
+    )
+    _raise_lobby_host_mutation_error(err)
+    assert lobby is not None
     return lobby
 
 
@@ -1431,3 +1439,40 @@ app.mount(
     StaticFiles(directory=str(_upload_dir)),
     name="files",
 )
+
+if settings.expose_openapi:
+    _CSRF_SAFE_METHODS = frozenset({"get", "head", "options", "trace"})
+
+    def _openapi_with_csrf_header() -> dict:
+        if app.openapi_schema:
+            return app.openapi_schema
+        schema = get_openapi(
+            title=app.title,
+            version=app.version,
+            openapi_version=app.openapi_version,
+            description=app.description,
+            routes=app.routes,
+        )
+        param = {
+            "name": settings.csrf_header_name,
+            "in": "header",
+            "required": False,
+            "schema": {"type": "string"},
+        }
+        for path_item in schema.get("paths", {}).values():
+            if not isinstance(path_item, dict):
+                continue
+            for method, operation in path_item.items():
+                if method in _CSRF_SAFE_METHODS or not isinstance(operation, dict):
+                    continue
+                params = operation.setdefault("parameters", [])
+                if not any(
+                    p.get("name") == settings.csrf_header_name and p.get("in") == "header"
+                    for p in params
+                    if isinstance(p, dict)
+                ):
+                    params.append(param)
+        app.openapi_schema = schema
+        return app.openapi_schema
+
+    app.openapi = _openapi_with_csrf_header  # type: ignore[method-assign]

@@ -389,6 +389,19 @@ def _has_subscription_access(user_subscription: Subscription, required: Subscrip
     return _SUBSCRIPTION_ORDER[user_subscription] >= _SUBSCRIPTION_ORDER[required]
 
 
+async def _require_lobby_host(
+    session: AsyncSession,
+    lobby_id: uuid.UUID,
+    acting_user_id: uuid.UUID,
+) -> tuple[str | None, GameLobby | None]:
+    lobby = await session.get(GameLobby, lobby_id)
+    if lobby is None:
+        return "lobby_not_found", None
+    if lobby.host_user_id is None or lobby.host_user_id != acting_user_id:
+        return "not_host", None
+    return None, lobby
+
+
 async def get_overlay_design_options(
     session: AsyncSession,
     lobby_id: uuid.UUID,
@@ -638,8 +651,12 @@ async def set_membership_game_role(
     lobby_id: uuid.UUID,
     player_card_id: uuid.UUID,
     game_role: GameRole,
-) -> GameLobbyPublic | None:
+    acting_user_id: uuid.UUID,
+) -> tuple[str | None, GameLobbyPublic | None]:
     """Устарело при дублях карточки: используйте set_membership_game_role_for_seat."""
+    err, _ = await _require_lobby_host(session, lobby_id, acting_user_id)
+    if err:
+        return err, None
     membership_stmt = (
         select(LobbyMembership)
         .where(
@@ -650,18 +667,22 @@ async def set_membership_game_role(
     )
     membership = (await session.execute(membership_stmt)).scalars().first()
     if membership is None:
-        return None
+        return "membership_not_found", None
     membership.game_role = game_role
     await session.commit()
-    return await get_lobby_with_players(session, lobby_id)
+    return None, await get_lobby_with_players(session, lobby_id)
 
 
 async def clear_membership_game_role(
     session: AsyncSession,
     lobby_id: uuid.UUID,
     player_card_id: uuid.UUID,
-) -> GameLobbyPublic | None:
+    acting_user_id: uuid.UUID,
+) -> tuple[str | None, GameLobbyPublic | None]:
     """Устарело при дублях карточки: используйте clear_membership_game_role_for_seat."""
+    err, _ = await _require_lobby_host(session, lobby_id, acting_user_id)
+    if err:
+        return err, None
     membership_stmt = (
         select(LobbyMembership)
         .where(
@@ -672,10 +693,10 @@ async def clear_membership_game_role(
     )
     membership = (await session.execute(membership_stmt)).scalars().first()
     if membership is None:
-        return None
+        return "membership_not_found", None
     membership.game_role = None
     await session.commit()
-    return await get_lobby_with_players(session, lobby_id)
+    return None, await get_lobby_with_players(session, lobby_id)
 
 
 async def set_membership_game_role_for_seat(
@@ -683,26 +704,34 @@ async def set_membership_game_role_for_seat(
     lobby_id: uuid.UUID,
     membership_id: uuid.UUID,
     game_role: GameRole,
-) -> GameLobbyPublic | None:
+    acting_user_id: uuid.UUID,
+) -> tuple[str | None, GameLobbyPublic | None]:
+    err, _ = await _require_lobby_host(session, lobby_id, acting_user_id)
+    if err:
+        return err, None
     m = await session.get(LobbyMembership, membership_id)
     if m is None or m.lobby_id != lobby_id:
-        return None
+        return "membership_not_found", None
     m.game_role = game_role
     await session.commit()
-    return await get_lobby_with_players(session, lobby_id)
+    return None, await get_lobby_with_players(session, lobby_id)
 
 
 async def clear_membership_game_role_for_seat(
     session: AsyncSession,
     lobby_id: uuid.UUID,
     membership_id: uuid.UUID,
-) -> GameLobbyPublic | None:
+    acting_user_id: uuid.UUID,
+) -> tuple[str | None, GameLobbyPublic | None]:
+    err, _ = await _require_lobby_host(session, lobby_id, acting_user_id)
+    if err:
+        return err, None
     m = await session.get(LobbyMembership, membership_id)
     if m is None or m.lobby_id != lobby_id:
-        return None
+        return "membership_not_found", None
     m.game_role = None
     await session.commit()
-    return await get_lobby_with_players(session, lobby_id)
+    return None, await get_lobby_with_players(session, lobby_id)
 
 
 async def clear_all_lobby_game_roles(
@@ -730,8 +759,12 @@ async def set_membership_status(
     lobby_id: uuid.UUID,
     player_card_id: uuid.UUID,
     status: GameStatus,
-) -> GameLobbyPublic | None:
+    acting_user_id: uuid.UUID,
+) -> tuple[str | None, GameLobbyPublic | None]:
     """Устарело при дублях карточки: используйте set_membership_status_for_seat."""
+    err, _ = await _require_lobby_host(session, lobby_id, acting_user_id)
+    if err:
+        return err, None
     membership_stmt = (
         select(LobbyMembership)
         .where(
@@ -742,18 +775,22 @@ async def set_membership_status(
     )
     membership = (await session.execute(membership_stmt)).scalars().first()
     if membership is None:
-        return None
+        return "membership_not_found", None
     membership.status = status
     await session.commit()
-    return await get_lobby_with_players(session, lobby_id)
+    return None, await get_lobby_with_players(session, lobby_id)
 
 
 async def clear_membership_status(
     session: AsyncSession,
     lobby_id: uuid.UUID,
     player_card_id: uuid.UUID,
-) -> GameLobbyPublic | None:
+    acting_user_id: uuid.UUID,
+) -> tuple[str | None, GameLobbyPublic | None]:
     """Устарело при дублях карточки: используйте clear_membership_status_for_seat."""
+    err, _ = await _require_lobby_host(session, lobby_id, acting_user_id)
+    if err:
+        return err, None
     membership_stmt = (
         select(LobbyMembership)
         .where(
@@ -764,10 +801,10 @@ async def clear_membership_status(
     )
     membership = (await session.execute(membership_stmt)).scalars().first()
     if membership is None:
-        return None
+        return "membership_not_found", None
     membership.status = None
     await session.commit()
-    return await get_lobby_with_players(session, lobby_id)
+    return None, await get_lobby_with_players(session, lobby_id)
 
 
 async def set_membership_status_for_seat(
@@ -775,26 +812,34 @@ async def set_membership_status_for_seat(
     lobby_id: uuid.UUID,
     membership_id: uuid.UUID,
     status: GameStatus,
-) -> GameLobbyPublic | None:
+    acting_user_id: uuid.UUID,
+) -> tuple[str | None, GameLobbyPublic | None]:
+    err, _ = await _require_lobby_host(session, lobby_id, acting_user_id)
+    if err:
+        return err, None
     m = await session.get(LobbyMembership, membership_id)
     if m is None or m.lobby_id != lobby_id:
-        return None
+        return "membership_not_found", None
     m.status = status
     await session.commit()
-    return await get_lobby_with_players(session, lobby_id)
+    return None, await get_lobby_with_players(session, lobby_id)
 
 
 async def clear_membership_status_for_seat(
     session: AsyncSession,
     lobby_id: uuid.UUID,
     membership_id: uuid.UUID,
-) -> GameLobbyPublic | None:
+    acting_user_id: uuid.UUID,
+) -> tuple[str | None, GameLobbyPublic | None]:
+    err, _ = await _require_lobby_host(session, lobby_id, acting_user_id)
+    if err:
+        return err, None
     m = await session.get(LobbyMembership, membership_id)
     if m is None or m.lobby_id != lobby_id:
-        return None
+        return "membership_not_found", None
     m.status = None
     await session.commit()
-    return await get_lobby_with_players(session, lobby_id)
+    return None, await get_lobby_with_players(session, lobby_id)
 
 
 async def clear_all_lobby_statuses(
