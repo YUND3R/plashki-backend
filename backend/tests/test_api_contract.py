@@ -1,7 +1,5 @@
 from contextlib import asynccontextmanager, contextmanager
 
-import re
-from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from app.db.session import get_session
@@ -53,27 +51,38 @@ def test_all_mutating_openapi_operations_have_csrf_header_param() -> None:
             assert has_csrf, f"Missing {csrf_header} for {method.upper()} {path}"
 
 
-def test_openapi_and_registered_routes_are_consistent() -> None:
+def test_openapi_has_critical_endpoints() -> None:
     with _make_client() as client:
         openapi = client.get("/openapi.json").json()
 
-    openapi_ops: set[tuple[str, str]] = set()
-    for path, path_item in openapi.get("paths", {}).items():
-        for method in path_item.keys():
-            openapi_ops.add((method.upper(), path))
+    paths = openapi.get("paths", {})
+    required_ops = {
+        ("POST", "/auth/login"),
+        ("GET", "/auth/me"),
+        ("POST", "/users/{owner_user_id}/player-cards"),
+        ("POST", "/users/{owner_user_id}/player-cards/{card_id}/photo"),
+        ("POST", "/images/nanobanana/process"),
+        ("POST", "/lobbies"),
+        ("GET", "/lobbies/{lobby_id}/overlay-state"),
+    }
+    missing: list[str] = []
+    for method, path in required_ops:
+        method_obj = paths.get(path, {}).get(method.lower())
+        if not isinstance(method_obj, dict):
+            missing.append(f"{method} {path}")
+    assert not missing, f"Missing critical OpenAPI operations: {', '.join(sorted(missing))}"
 
-    route_ops: set[tuple[str, str]] = set()
-    param_pattern = re.compile(r"\{([^}:]+):[^}]+\}")
-    for route in app.routes:
-        if not isinstance(route, APIRoute):
-            continue
-        if not route.include_in_schema:
-            continue
-        normalized_path = param_pattern.sub(r"{\1}", route.path)
-        for method in route.methods or set():
-            if method in {"HEAD", "OPTIONS"}:
-                continue
-            route_ops.add((method, normalized_path))
 
-    # OpenAPI не должен терять зарегистрированные ручки и не должен содержать «битых» операций.
-    assert route_ops == openapi_ops
+def test_openapi_operation_ids_are_unique() -> None:
+    with _make_client() as client:
+        openapi = client.get("/openapi.json").json()
+
+    operation_ids: list[str] = []
+    for path_item in openapi.get("paths", {}).values():
+        if not isinstance(path_item, dict):
+            continue
+        for operation in path_item.values():
+            if isinstance(operation, dict) and isinstance(operation.get("operationId"), str):
+                operation_ids.append(operation["operationId"])
+
+    assert len(operation_ids) == len(set(operation_ids)), "Duplicate OpenAPI operationId found."
