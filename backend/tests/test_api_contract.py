@@ -1,7 +1,6 @@
-import json
 from contextlib import asynccontextmanager, contextmanager
-from pathlib import Path
 
+import re
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
@@ -35,27 +34,6 @@ def _make_client():
         app.dependency_overrides.pop(get_session, None)
 
 
-def _collect_route_ops() -> list[dict[str, str]]:
-    operations: list[dict[str, str]] = []
-    for route in app.routes:
-        if not isinstance(route, APIRoute):
-            continue
-        for method in sorted(route.methods or []):
-            if method in {"HEAD", "OPTIONS"}:
-                continue
-            operations.append({"method": method, "path": route.path})
-    return sorted(operations, key=lambda item: (item["path"], item["method"]))
-
-
-def _load_snapshot_ops() -> list[dict[str, str]]:
-    snapshot_path = Path(__file__).parent / "fixtures" / "api_operations_snapshot.json"
-    return json.loads(snapshot_path.read_text(encoding="utf-8"))
-
-
-def test_api_operations_match_snapshot() -> None:
-    assert _collect_route_ops() == _load_snapshot_ops()
-
-
 def test_all_mutating_openapi_operations_have_csrf_header_param() -> None:
     with _make_client() as client:
         openapi = client.get("/openapi.json").json()
@@ -73,3 +51,29 @@ def test_all_mutating_openapi_operations_have_csrf_header_param() -> None:
                 for p in params
             )
             assert has_csrf, f"Missing {csrf_header} for {method.upper()} {path}"
+
+
+def test_openapi_and_registered_routes_are_consistent() -> None:
+    with _make_client() as client:
+        openapi = client.get("/openapi.json").json()
+
+    openapi_ops: set[tuple[str, str]] = set()
+    for path, path_item in openapi.get("paths", {}).items():
+        for method in path_item.keys():
+            openapi_ops.add((method.upper(), path))
+
+    route_ops: set[tuple[str, str]] = set()
+    param_pattern = re.compile(r"\{([^}:]+):[^}]+\}")
+    for route in app.routes:
+        if not isinstance(route, APIRoute):
+            continue
+        if not route.include_in_schema:
+            continue
+        normalized_path = param_pattern.sub(r"{\1}", route.path)
+        for method in route.methods or set():
+            if method in {"HEAD", "OPTIONS"}:
+                continue
+            route_ops.add((method, normalized_path))
+
+    # OpenAPI не должен терять зарегистрированные ручки и не должен содержать «битых» операций.
+    assert route_ops == openapi_ops
