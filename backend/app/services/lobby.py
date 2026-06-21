@@ -508,13 +508,13 @@ async def get_lobby_overlay_state(
 async def get_lobby_overlay_state_by_public_id(
     session: AsyncSession,
     overlay_public_id: uuid.UUID,
+    expected_lobby_id: uuid.UUID | None = None,
 ) -> LobbyOverlayStateResponse | None:
-    stmt = (
-        select(GameLobby)
-        .where(GameLobby.overlay_public_id == overlay_public_id)
-        .options(
-            selectinload(GameLobby.member_links).selectinload(LobbyMembership.player_card),
-        )
+    stmt = select(GameLobby).where(GameLobby.overlay_public_id == overlay_public_id)
+    if expected_lobby_id is not None:
+        stmt = stmt.where(GameLobby.id == expected_lobby_id)
+    stmt = stmt.options(
+        selectinload(GameLobby.member_links).selectinload(LobbyMembership.player_card),
     )
     result = await session.execute(stmt)
     lobby = result.scalar_one_or_none()

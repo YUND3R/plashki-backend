@@ -828,16 +828,24 @@ async def get_lobby_overlay_state_endpoint(
     "/overlay/{overlay_design}/{overlay_public_id}",
     tags=["overlay"],
     response_model=LobbyOverlayStateResponse,
-    summary="Состояние overlay по публичному id (для страницы overlay)",
+    summary="Состояние overlay по публичному id (и опционально lobby_id)",
 )
 async def get_overlay_state_by_public_id(
     overlay_design: OverlayDesign,
     overlay_public_id: uuid.UUID,
     response: Response,
+    lobby_id: uuid.UUID | None = Query(
+        default=None,
+        description="Опционально: если передан, состояние вернётся только для этого lobby_id.",
+    ),
     session: AsyncSession = Depends(get_session),
 ) -> LobbyOverlayStateResponse:
     _set_no_cache_headers(response)
-    result = await get_lobby_overlay_state_by_public_id(session, overlay_public_id)
+    result = await get_lobby_overlay_state_by_public_id(
+        session,
+        overlay_public_id,
+        expected_lobby_id=lobby_id,
+    )
     if result is None:
         raise HTTPException(status_code=404, detail="Лобби для overlay не найдено")
     # Параметр дизайна в URL поддерживаем для совместимости с фронт-маршрутом.
