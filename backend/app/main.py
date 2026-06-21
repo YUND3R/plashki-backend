@@ -25,6 +25,7 @@ from app.db.session import engine, get_session
 from app.deps.auth import get_current_user_id
 from app.routers import auth as auth_routes
 from app.routers import dev as dev_routes
+from app.routers import nanobanana as nanobanana_routes
 from app.routers import player_card as player_card_routes
 from app.schemas.lobby import (
     CreateGameLobbyBody,
@@ -447,6 +448,7 @@ if settings.dev_endpoints_enabled:
 
 app.include_router(auth_routes.router)
 app.include_router(player_card_routes.router)
+app.include_router(nanobanana_routes.router)
 
 
 def _set_no_cache_headers(response: Response) -> None:

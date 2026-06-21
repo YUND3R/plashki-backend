@@ -123,6 +123,28 @@ class Settings(BaseSettings):
         default="",
         validation_alias=AliasChoices("TELEGRAM_ALERT_CHAT_ID"),
     )
+    nanobanana_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("NANOBANANA_API_KEY"),
+    )
+    nanobanana_base_url: str = Field(
+        default="",
+        validation_alias=AliasChoices("NANOBANANA_BASE_URL"),
+    )
+    nanobanana_path: str = Field(
+        default="/v1/images/edit",
+        validation_alias=AliasChoices("NANOBANANA_PATH"),
+    )
+    nanobanana_model: str = Field(
+        default="",
+        validation_alias=AliasChoices("NANOBANANA_MODEL"),
+    )
+    nanobanana_timeout_seconds: int = Field(
+        default=90,
+        ge=5,
+        le=300,
+        validation_alias=AliasChoices("NANOBANANA_TIMEOUT_SECONDS"),
+    )
 
     @model_validator(mode="after")
     def validate_database_url(self) -> "Settings":
