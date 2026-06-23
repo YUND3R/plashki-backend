@@ -89,6 +89,34 @@ class SetOverlayDesignBody(BaseModel):
     overlay_design: OverlayDesign
 
 
+class SetActiveOverlayScreenBody(BaseModel):
+    screen_key: str = Field(
+        min_length=1,
+        max_length=64,
+        pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$",
+        description="Ключ активного экрана для OBS (например: lobby, roles, scoreboard).",
+    )
+
+
+class SetActiveOverlayLobbyBody(BaseModel):
+    lobby_id: str = Field(
+        min_length=1,
+        max_length=64,
+        description="UUID лобби, которое станет активным для OBS live-ссылки.",
+    )
+
+
+class ActiveOverlayLobbyResponse(BaseModel):
+    active_lobby_id: uuid.UUID | None
+    updated_at: datetime
+
+
+class OverlayLiveStateResponse(BaseModel):
+    active_lobby_id: uuid.UUID | None
+    active_overlay_screen: str
+    selected_overlay_design: OverlayDesign
+
+
 class SetSheriffCheckBody(BaseModel):
     sheriff_check: list[str] = Field(
         min_length=5,
@@ -135,6 +163,7 @@ class OverlayPlayerState(BaseModel):
 class LobbyOverlayStateResponse(BaseModel):
     lobby_id: uuid.UUID
     selected_overlay_design: OverlayDesign
+    active_overlay_screen: str
     design_catalog: list[LobbyOverlayDesignOption]
     sheriff_check: list[str]
     best_move: list[str]
@@ -184,6 +213,7 @@ class GameLobbyPublic(BaseModel):
     title: str
     host_user_id: uuid.UUID | None = None
     selected_overlay_design: str
+    active_overlay_screen: str
     design_catalog: list[LobbyOverlayDesignOption]
     sheriff_check: list[str]
     best_move: list[str]

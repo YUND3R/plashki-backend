@@ -28,6 +28,7 @@ from app.routers import dev as dev_routes
 from app.routers import nanobanana as nanobanana_routes
 from app.routers import player_card as player_card_routes
 from app.schemas.lobby import (
+    ActiveOverlayLobbyResponse,
     CreateGameLobbyBody,
     GameLobbyPublic,
     ImportGomafiaTournamentBody,
@@ -37,9 +38,12 @@ from app.schemas.lobby import (
     LobbyOverlayDesignsResponse,
     LobbyOverlayStateResponse,
     LobbiesTotalResponse,
+    OverlayLiveStateResponse,
     ReplaceLobbyMemberBody,
+    SetActiveOverlayLobbyBody,
     SetBestMoveBody,
     SetGameRoleBody,
+    SetActiveOverlayScreenBody,
     SetOverlayDesignBody,
     SelectImportedLobbyTableBody,
     SetSheriffCheckBody,
@@ -71,12 +75,15 @@ from app.services.lobby import (
     get_lobby_with_players,
     get_lobby_overlay_state,
     get_lobby_overlay_state_by_public_id,
+    get_active_overlay_state_for_user,
     list_imported_tournament_participants,
     get_overlay_design_catalog_for_user,
     get_overlay_design_options,
     replace_lobby_member_card,
     set_lobby_overlay_design,
+    set_lobby_active_overlay_screen,
     set_lobby_member_display_photo,
+    set_active_overlay_lobby,
     set_lobby_best_move,
     set_lobby_sheriff_check,
     select_imported_lobby_variant,
@@ -175,6 +182,18 @@ async def lifespan(_app: FastAPI):
         await conn.execute(
             text(
                 "ALTER TABLE game_lobby ALTER COLUMN selected_overlay_design SET DEFAULT 'classic'"
+            )
+        )
+        await conn.execute(
+            text(
+                "ALTER TABLE game_lobby ADD COLUMN IF NOT EXISTS active_overlay_screen "
+                "VARCHAR(64) NOT NULL DEFAULT 'lobby'"
+            )
+        )
+        await conn.execute(
+            text(
+                "UPDATE game_lobby SET active_overlay_screen = 'lobby' "
+                "WHERE active_overlay_screen IS NULL OR btrim(active_overlay_screen) = ''"
             )
         )
         await conn.execute(
@@ -325,6 +344,17 @@ async def lifespan(_app: FastAPI):
             text(
                 "ALTER TABLE user_profile ADD COLUMN IF NOT EXISTS email_verified_at "
                 "TIMESTAMPTZ NULL"
+            )
+        )
+        await conn.execute(
+            text(
+                "ALTER TABLE user_profile ADD COLUMN IF NOT EXISTS active_overlay_lobby_id UUID NULL"
+            )
+        )
+        await conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_user_profile_active_overlay_lobby_id "
+                "ON user_profile(active_overlay_lobby_id)"
             )
         )
         await conn.execute(
@@ -870,6 +900,69 @@ async def get_overlay_design_catalog(
     return result
 
 
+@app.patch(
+    "/overlay/active-lobby",
+    tags=["overlay"],
+    response_model=ActiveOverlayLobbyResponse,
+    summary="Сделать лобби активным для OBS live-ссылки",
+)
+async def patch_active_overlay_lobby(
+    body: SetActiveOverlayLobbyBody,
+    session: AsyncSession = Depends(get_session),
+    acting_user_id: uuid.UUID = Depends(get_current_user_id),
+) -> ActiveOverlayLobbyResponse:
+    try:
+        lobby_id = uuid.UUID(body.lobby_id.strip())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Некорректный lobby_id (ожидается UUID).") from exc
+    err, result = await set_active_overlay_lobby(session, acting_user_id, lobby_id)
+    if err == "lobby_not_found":
+        raise HTTPException(status_code=404, detail="Лобби не найдено")
+    if err == "not_host":
+        raise HTTPException(
+            status_code=403,
+            detail="Активировать лобби для OBS может только хост.",
+        )
+    if err == "user_not_found":
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    assert result is not None
+    return result
+
+
+@app.get(
+    "/overlay/state",
+    tags=["overlay"],
+    response_model=OverlayLiveStateResponse,
+    summary="Текущее active-lobby состояние для OBS (по текущему пользователю)",
+)
+async def get_overlay_state(
+    session: AsyncSession = Depends(get_session),
+    acting_user_id: uuid.UUID = Depends(get_current_user_id),
+) -> OverlayLiveStateResponse:
+    err, result = await get_active_overlay_state_for_user(session, acting_user_id)
+    if err == "user_not_found":
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    assert result is not None
+    return result
+
+
+@app.get(
+    "/overlay/live",
+    tags=["overlay"],
+    response_model=OverlayLiveStateResponse,
+    summary="Стабильная live-ссылка для OBS (один URL)",
+)
+async def get_overlay_live(
+    session: AsyncSession = Depends(get_session),
+    acting_user_id: uuid.UUID = Depends(get_current_user_id),
+) -> OverlayLiveStateResponse:
+    err, result = await get_active_overlay_state_for_user(session, acting_user_id)
+    if err == "user_not_found":
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    assert result is not None
+    return result
+
+
 @app.get(
     "/lobbies/{lobby_id}/overlay-designs",
     tags=["lobbies", "overlay"],
@@ -921,6 +1014,32 @@ async def patch_lobby_overlay_design(
         raise HTTPException(
             status_code=403,
             detail="Этот дизайн недоступен для текущей подписки хоста.",
+        )
+    assert lobby is not None
+    return lobby
+
+
+@app.patch(
+    "/lobbies/{lobby_id}/overlay-screen",
+    tags=["lobbies", "overlay"],
+    response_model=GameLobbyPublic,
+    summary="Переключить активный экран для OBS в рамках лобби (только хост)",
+)
+async def patch_lobby_overlay_screen(
+    lobby_id: uuid.UUID,
+    body: SetActiveOverlayScreenBody,
+    session: AsyncSession = Depends(get_session),
+    acting_user_id: uuid.UUID = Depends(get_current_user_id),
+) -> GameLobbyPublic:
+    err, lobby = await set_lobby_active_overlay_screen(
+        session, lobby_id, body.screen_key, acting_user_id
+    )
+    if err == "lobby_not_found":
+        raise HTTPException(status_code=404, detail="Лобби не найдено")
+    if err == "not_host":
+        raise HTTPException(
+            status_code=403,
+            detail="Переключать экран overlay может только хост лобби.",
         )
     assert lobby is not None
     return lobby

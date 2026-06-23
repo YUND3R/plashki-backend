@@ -7,6 +7,7 @@ from sqlalchemy.orm import selectinload
 from app.db.base import GameRole, GameStatus, OverlayDesign, Subscription
 from app.db.models import GameLobby, LobbyMembership, PlayerCard, UserProfile
 from app.schemas.lobby import (
+    ActiveOverlayLobbyResponse,
     GameLobbyPublic,
     ImportedTournamentParticipant,
     ImportedTournamentParticipantsResponse,
@@ -17,6 +18,7 @@ from app.schemas.lobby import (
     LobbyOverlayDesignsResponse,
     LobbyPlayerPublic,
     LobbyOverlayStateResponse,
+    OverlayLiveStateResponse,
     OverlayPlayerState,
 )
 
@@ -162,6 +164,7 @@ async def list_lobbies_for_host(
                 title=lobby.title,
                 host_user_id=lobby.host_user_id,
                 selected_overlay_design=lobby.selected_overlay_design.value,
+                active_overlay_screen=lobby.active_overlay_screen,
                 design_catalog=_build_design_options(host_subscription),
                 sheriff_check=list(lobby.sheriff_check or []),
                 best_move=list(lobby.best_move or []),
@@ -221,6 +224,7 @@ async def get_lobby_with_players(
         title=lobby.title,
         host_user_id=lobby.host_user_id,
         selected_overlay_design=lobby.selected_overlay_design.value,
+        active_overlay_screen=lobby.active_overlay_screen,
         design_catalog=_build_design_options(host_subscription),
         sheriff_check=list(lobby.sheriff_check or []),
         best_move=list(lobby.best_move or []),
@@ -254,6 +258,7 @@ async def create_lobby(
         title=lobby.title,
         host_user_id=lobby.host_user_id,
         selected_overlay_design=lobby.selected_overlay_design.value,
+        active_overlay_screen=lobby.active_overlay_screen,
         design_catalog=_build_design_options(host.subscription),
         sheriff_check=list(lobby.sheriff_check or []),
         best_move=list(lobby.best_move or []),
@@ -273,6 +278,11 @@ async def delete_lobby(
         return "lobby_not_found"
     if lobby.host_user_id is None or lobby.host_user_id != acting_user_id:
         return "not_host"
+    await session.execute(
+        update(UserProfile)
+        .where(UserProfile.active_overlay_lobby_id == lobby_id)
+        .values(active_overlay_lobby_id=None)
+    )
     await session.delete(lobby)
     await session.commit()
     return None
@@ -431,6 +441,70 @@ async def get_overlay_design_catalog_for_user(
     return OverlayDesignCatalogResponse(options=_build_design_options(user.subscription))
 
 
+async def set_active_overlay_lobby(
+    session: AsyncSession,
+    acting_user_id: uuid.UUID,
+    lobby_id: uuid.UUID,
+) -> tuple[str | None, ActiveOverlayLobbyResponse | None]:
+    lobby = await session.get(GameLobby, lobby_id)
+    if lobby is None:
+        return "lobby_not_found", None
+    if lobby.host_user_id is None or lobby.host_user_id != acting_user_id:
+        return "not_host", None
+    user = await session.get(UserProfile, acting_user_id)
+    if user is None:
+        return "user_not_found", None
+    user.active_overlay_lobby_id = lobby_id
+    await session.commit()
+    await session.refresh(user)
+    return (
+        None,
+        ActiveOverlayLobbyResponse(
+            active_lobby_id=user.active_overlay_lobby_id,
+            updated_at=user.updated_at,
+        ),
+    )
+
+
+async def get_active_overlay_state_for_user(
+    session: AsyncSession,
+    acting_user_id: uuid.UUID,
+) -> tuple[str | None, OverlayLiveStateResponse | None]:
+    user = await session.get(UserProfile, acting_user_id)
+    if user is None:
+        return "user_not_found", None
+    active_lobby_id = user.active_overlay_lobby_id
+    if active_lobby_id is None:
+        return (
+            None,
+            OverlayLiveStateResponse(
+                active_lobby_id=None,
+                active_overlay_screen="lobby",
+                selected_overlay_design=OverlayDesign.CLASSIC,
+            ),
+        )
+    lobby = await session.get(GameLobby, active_lobby_id)
+    if lobby is None:
+        user.active_overlay_lobby_id = None
+        await session.commit()
+        return (
+            None,
+            OverlayLiveStateResponse(
+                active_lobby_id=None,
+                active_overlay_screen="lobby",
+                selected_overlay_design=OverlayDesign.CLASSIC,
+            ),
+        )
+    return (
+        None,
+        OverlayLiveStateResponse(
+            active_lobby_id=lobby.id,
+            active_overlay_screen=lobby.active_overlay_screen,
+            selected_overlay_design=lobby.selected_overlay_design,
+        ),
+    )
+
+
 async def set_lobby_overlay_design(
     session: AsyncSession,
     lobby_id: uuid.UUID,
@@ -456,6 +530,22 @@ async def set_lobby_overlay_design(
         return "subscription_required", None
 
     lobby.selected_overlay_design = overlay_design
+    await session.commit()
+    return None, await get_lobby_with_players(session, lobby_id)
+
+
+async def set_lobby_active_overlay_screen(
+    session: AsyncSession,
+    lobby_id: uuid.UUID,
+    screen_key: str,
+    acting_user_id: uuid.UUID,
+) -> tuple[str | None, GameLobbyPublic | None]:
+    lobby = await session.get(GameLobby, lobby_id)
+    if lobby is None:
+        return "lobby_not_found", None
+    if lobby.host_user_id is None or lobby.host_user_id != acting_user_id:
+        return "not_host", None
+    lobby.active_overlay_screen = screen_key.strip()
     await session.commit()
     return None, await get_lobby_with_players(session, lobby_id)
 
@@ -498,6 +588,7 @@ async def get_lobby_overlay_state(
     return LobbyOverlayStateResponse(
         lobby_id=lobby.id,
         selected_overlay_design=lobby.selected_overlay_design,
+        active_overlay_screen=lobby.active_overlay_screen,
         design_catalog=_build_design_options(host_subscription),
         sheriff_check=list(lobby.sheriff_check or []),
         best_move=list(lobby.best_move or []),
@@ -540,6 +631,7 @@ async def get_lobby_overlay_state_by_public_id(
     return LobbyOverlayStateResponse(
         lobby_id=lobby.id,
         selected_overlay_design=lobby.selected_overlay_design,
+        active_overlay_screen=lobby.active_overlay_screen,
         design_catalog=_build_design_options(host_subscription),
         sheriff_check=list(lobby.sheriff_check or []),
         best_move=list(lobby.best_move or []),

@@ -64,6 +64,11 @@ class UserProfile(Base):
         nullable=True,
         index=True,
     )
+    active_overlay_lobby_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        nullable=True,
+        index=True,
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -213,6 +218,12 @@ class GameLobby(Base):
         ),
         nullable=False,
         server_default=OverlayDesign.CLASSIC.value,
+    )
+    # Активный экран overlay для OBS (переключается кнопками в панели управления).
+    active_overlay_screen: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        server_default=text("'lobby'"),
     )
     # Массив из 5 отметок проверки шерифа (формат задаёт клиент/overlay).
     sheriff_check: Mapped[list[str]] = mapped_column(
