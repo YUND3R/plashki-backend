@@ -42,6 +42,7 @@ def test_submit_feedback_returns_response(monkeypatch) -> None:
 
     monkeypatch.setattr(feedback_service, "FeedbackMessage", FakeFeedback)
     monkeypatch.setattr(feedback_service, "_notify_team", lambda **_kwargs: None)
+    monkeypatch.setattr(feedback_service, "_notify_user_ack", lambda **_kwargs: None)
 
     import asyncio
 
@@ -61,3 +62,25 @@ def test_submit_feedback_returns_response(monkeypatch) -> None:
     assert result.id == session.row_id
     assert session.commit_called is True
     assert "Спасибо" in result.detail
+
+
+def test_notify_user_ack_uses_contact_email_or_profile_email(monkeypatch) -> None:
+    sent_to: list[str] = []
+
+    def _fake_send_email(*, to_email: str, subject: str, body: str, html_body=None) -> bool:
+        _ = subject
+        _ = body
+        _ = html_body
+        sent_to.append(to_email)
+        return True
+
+    monkeypatch.setattr(feedback_service.alert_service, "send_email", _fake_send_email)
+
+    user = SimpleNamespace(username="host", email="host@example.com")
+    feedback_with_contact = SimpleNamespace(category="idea", message="msg", contact_email="contact@example.com")
+    feedback_without_contact = SimpleNamespace(category="idea", message="msg", contact_email=None)
+
+    feedback_service._notify_user_ack(user=user, feedback=feedback_with_contact)
+    feedback_service._notify_user_ack(user=user, feedback=feedback_without_contact)
+
+    assert sent_to == ["contact@example.com", "host@example.com"]

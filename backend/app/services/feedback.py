@@ -35,6 +35,7 @@ async def submit_user_feedback(
     await session.refresh(row)
 
     _notify_team(user=user, feedback=row)
+    _notify_user_ack(user=user, feedback=row)
     return FeedbackSubmittedResponse(id=row.id, created_at=row.created_at)
 
 
@@ -62,3 +63,17 @@ def _notify_team(*, user: UserProfile, feedback: FeedbackMessage) -> None:
     )
     for email in alert_service.alert_recipients():
         alert_service.send_email(to_email=email, subject=subject, body=body)
+
+
+def _notify_user_ack(*, user: UserProfile, feedback: FeedbackMessage) -> None:
+    to_email = (feedback.contact_email or "").strip() or user.email
+    if not to_email:
+        return
+    subject = "[Plashki] Мы получили ваше обращение"
+    body = (
+        "Спасибо! Мы получили ваше обращение и передали его в работу.\n\n"
+        f"Категория: {_category_label(feedback.category)}\n"
+        f"Ваш текст: {feedback.message}\n\n"
+        "Если потребуется уточнение, свяжемся с вами по указанному контакту."
+    )
+    alert_service.send_email(to_email=to_email, subject=subject, body=body)
