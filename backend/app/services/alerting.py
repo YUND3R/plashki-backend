@@ -5,6 +5,8 @@ import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
+import httpx
+
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -98,6 +100,26 @@ class AlertService:
             if smtp_user:
                 client.login(smtp_user, smtp_password)
             client.sendmail(settings.smtp_from_email.strip(), to_emails, msg.as_string())
+
+    def alert_recipients(self) -> list[str]:
+        return settings.alert_email_list
+
+    def send_telegram(self, text: str) -> bool:
+        token = settings.telegram_bot_token.strip()
+        chat_id = settings.telegram_alert_chat_id.strip()
+        if not token or not chat_id:
+            return False
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        try:
+            with httpx.Client(timeout=15.0) as client:
+                resp = client.post(url, json={"chat_id": chat_id, "text": text[:4000]})
+            if resp.status_code >= 400:
+                logger.error("Telegram send failed: HTTP %s %s", resp.status_code, resp.text[:300])
+                return False
+            return True
+        except Exception as e:
+            logger.error("Telegram send failed: %s", e, exc_info=True)
+            return False
 
 
 alert_service = AlertService()

@@ -25,6 +25,7 @@ from app.db.session import engine, get_session
 from app.deps.auth import get_current_user_id
 from app.routers import auth as auth_routes
 from app.routers import dev as dev_routes
+from app.routers import feedback as feedback_routes
 from app.routers import nanobanana as nanobanana_routes
 from app.routers import player_card as player_card_routes
 from app.schemas.lobby import (
@@ -360,6 +361,27 @@ async def lifespan(_app: FastAPI):
         await conn.execute(
             text(
                 """
+                CREATE TABLE IF NOT EXISTS feedback_message (
+                    id UUID PRIMARY KEY,
+                    user_id UUID NOT NULL REFERENCES user_profile(id) ON DELETE CASCADE,
+                    category VARCHAR(32) NOT NULL,
+                    message VARCHAR(4000) NOT NULL,
+                    page_url VARCHAR(1024) NULL,
+                    contact_email VARCHAR(255) NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_feedback_message_user_id "
+                "ON feedback_message(user_id)"
+            )
+        )
+        await conn.execute(
+            text(
+                """
                 CREATE TABLE IF NOT EXISTS _applied_schema_patch (
                     id TEXT PRIMARY KEY
                 )
@@ -477,6 +499,7 @@ if settings.dev_endpoints_enabled:
     app.include_router(dev_routes.router)
 
 app.include_router(auth_routes.router)
+app.include_router(feedback_routes.router)
 app.include_router(player_card_routes.router)
 app.include_router(nanobanana_routes.router)
 

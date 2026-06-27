@@ -90,6 +90,10 @@ class UserProfile(Base):
         back_populates="user",
         cascade="all, delete-orphan",
     )
+    feedback_messages: Mapped[list["FeedbackMessage"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
 
     def is_subscription_active(self) -> bool:
         if self.subscription == Subscription.FREE:
@@ -381,4 +385,31 @@ class EmailVerificationToken(Base):
     pending_registration: Mapped["PendingRegistration | None"] = relationship(
         back_populates="verification_tokens"
     )
+
+
+class FeedbackMessage(Base):
+    __tablename__ = "feedback_message"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("user_profile.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    category: Mapped[str] = mapped_column(String(32), nullable=False)
+    message: Mapped[str] = mapped_column(String(4000), nullable=False)
+    page_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    contact_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    user: Mapped["UserProfile"] = relationship(back_populates="feedback_messages")
 
