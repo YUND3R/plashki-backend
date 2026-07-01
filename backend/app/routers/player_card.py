@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_session
 from app.deps.auth import get_current_user_id
+from app.schemas.list_filters import PlayerCardListFilters
 from app.schemas.player_card import (
     PlayerCardPatch,
     PlayerCardPhotoResponse,
@@ -38,9 +39,12 @@ async def list_player_cards(
     owner_user_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
     current_user_id: uuid.UUID = Depends(get_current_user_id),
+    filters: PlayerCardListFilters = Depends(),
 ) -> list[PlayerCardPublic]:
     _require_self(owner_user_id, current_user_id)
-    err, rows = await player_card_service.list_player_cards(session, owner_user_id)
+    err, rows = await player_card_service.list_player_cards(
+        session, owner_user_id, filters=filters
+    )
     if err == "owner_not_found":
         raise HTTPException(status_code=404, detail="Владелец (пользователь) не найден")
     return [PlayerCardPublic.model_validate(r) for r in rows]

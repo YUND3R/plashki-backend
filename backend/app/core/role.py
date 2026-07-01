@@ -1,10 +1,12 @@
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import Role, Subscription
 from app.db.models import UserProfile
+from app.schemas.list_filters import AdminUserListFilters
+from app.services.list_query import apply_pagination, apply_sort, ilike_pattern
 
 
 async def update_user_role_user_to_sponsor(
@@ -105,12 +107,35 @@ async def admin_list_registered_users(
     session: AsyncSession,
     *,
     requester_id: uuid.UUID,
+    filters: AdminUserListFilters | None = None,
 ) -> tuple[str | None, list[UserProfile]]:
     requester = await session.get(UserProfile, requester_id)
     if requester is None or requester.role != Role.ADMIN:
         return "not_admin", []
 
-    result = await session.execute(
-        select(UserProfile).order_by(UserProfile.created_at.asc())
-    )
+    filters = filters or AdminUserListFilters()
+    stmt = select(UserProfile)
+    if filters.q:
+        pattern = ilike_pattern(filters.q)
+        stmt = stmt.where(
+            or_(
+                UserProfile.username.ilike(pattern),
+                UserProfile.email.ilike(pattern),
+                UserProfile.nickname.ilike(pattern),
+                UserProfile.first_name.ilike(pattern),
+                UserProfile.last_name.ilike(pattern),
+            )
+        )
+    if filters.role is not None:
+        stmt = stmt.where(UserProfile.role == filters.role)
+    if filters.subscription is not None:
+        stmt = stmt.where(UserProfile.subscription == filters.subscription)
+    sort_column = {
+        "created_at": UserProfile.created_at,
+        "username": UserProfile.username,
+        "email": UserProfile.email,
+    }[filters.sort_by]
+    stmt = apply_sort(stmt, sort_column, filters.sort_order)
+    stmt = apply_pagination(stmt, limit=filters.limit, offset=filters.offset)
+    result = await session.execute(stmt)
     return None, list(result.scalars().all())

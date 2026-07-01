@@ -28,6 +28,7 @@ from app.routers import dev as dev_routes
 from app.routers import feedback as feedback_routes
 from app.routers import nanobanana as nanobanana_routes
 from app.routers import player_card as player_card_routes
+from app.schemas.list_filters import AdminUserListFilters, LobbyListFilters
 from app.schemas.lobby import (
     ActiveOverlayLobbyResponse,
     CreateGameLobbyBody,
@@ -653,10 +654,12 @@ async def admin_patch_user_access(
 async def admin_get_registered_users(
     session: AsyncSession = Depends(get_session),
     requester_id: uuid.UUID = Depends(get_current_user_id),
+    filters: AdminUserListFilters = Depends(),
 ) -> list[AdminRegisteredUser]:
     err, users = await admin_list_registered_users(
         session,
         requester_id=requester_id,
+        filters=filters,
     )
     if err == "not_admin":
         raise HTTPException(
@@ -796,8 +799,9 @@ async def get_imported_tournament_participants(
 async def get_my_lobbies(
     session: AsyncSession = Depends(get_session),
     current_user_id: uuid.UUID = Depends(get_current_user_id),
+    filters: LobbyListFilters = Depends(),
 ) -> list[GameLobbyPublic]:
-    return await list_lobbies_for_host(session, current_user_id)
+    return await list_lobbies_for_host(session, current_user_id, filters=filters)
 
 
 @app.get(
@@ -809,8 +813,9 @@ async def get_my_lobbies(
 async def get_lobbies_count(
     session: AsyncSession = Depends(get_session),
     current_user_id: uuid.UUID = Depends(get_current_user_id),
+    filters: LobbyListFilters = Depends(),
 ) -> LobbiesTotalResponse:
-    total = await count_game_lobbies(session, host_user_id=current_user_id)
+    total = await count_game_lobbies(session, host_user_id=current_user_id, filters=filters)
     return LobbiesTotalResponse(total=total)
 
 

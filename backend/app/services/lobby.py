@@ -6,6 +6,7 @@ from sqlalchemy.orm import selectinload
 
 from app.db.base import GameRole, GameStatus, OverlayDesign, Subscription
 from app.db.models import GameLobby, LobbyMembership, PlayerCard, UserProfile
+from app.schemas.list_filters import LobbyListFilters
 from app.schemas.lobby import (
     ActiveOverlayLobbyResponse,
     GameLobbyPublic,
@@ -21,6 +22,7 @@ from app.schemas.lobby import (
     OverlayLiveStateResponse,
     OverlayPlayerState,
 )
+from app.services.list_query import apply_pagination, apply_sort, ilike_pattern
 
 
 _SUBSCRIPTION_ORDER: dict[Subscription, int] = {
@@ -110,27 +112,52 @@ def _build_imported_state(lobby: GameLobby) -> ImportedLobbyState | None:
 async def count_game_lobbies(
     session: AsyncSession,
     host_user_id: uuid.UUID | None = None,
+    *,
+    filters: LobbyListFilters | None = None,
 ) -> int:
     stmt = select(func.count()).select_from(GameLobby)
     if host_user_id is not None:
         stmt = stmt.where(GameLobby.host_user_id == host_user_id)
+    if filters is not None:
+        stmt = _apply_lobby_list_filters(stmt, filters)
     return int((await session.execute(stmt)).scalar_one())
+
+
+def _lobby_sort_column(sort_by: str):
+    return {
+        "created_at": GameLobby.created_at,
+        "title": GameLobby.title,
+        "max_players": GameLobby.max_players,
+    }[sort_by]
+
+
+def _apply_lobby_list_filters(stmt, filters: LobbyListFilters):
+    if filters.q:
+        stmt = stmt.where(GameLobby.title.ilike(ilike_pattern(filters.q)))
+    if filters.overlay_design is not None:
+        stmt = stmt.where(GameLobby.selected_overlay_design == filters.overlay_design)
+    return stmt
 
 
 async def list_lobbies_for_host(
     session: AsyncSession,
     host_user_id: uuid.UUID,
+    *,
+    filters: LobbyListFilters | None = None,
 ) -> list[GameLobbyPublic]:
+    filters = filters or LobbyListFilters()
     stmt = (
         select(GameLobby)
         .where(GameLobby.host_user_id == host_user_id)
-        .order_by(GameLobby.created_at.desc())
         .options(
             selectinload(GameLobby.member_links)
             .selectinload(LobbyMembership.player_card)
             .selectinload(PlayerCard.owner),
         )
     )
+    stmt = _apply_lobby_list_filters(stmt, filters)
+    stmt = apply_sort(stmt, _lobby_sort_column(filters.sort_by), filters.sort_order)
+    stmt = apply_pagination(stmt, limit=filters.limit, offset=filters.offset)
     lobbies = (await session.execute(stmt)).scalars().all()
     host = await session.get(UserProfile, host_user_id)
     host_subscription = host.subscription if host else Subscription.FREE

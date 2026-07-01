@@ -1,14 +1,16 @@
 import uuid
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import LobbyMembership, PlayerCard, UserProfile
+from app.schemas.list_filters import PlayerCardListFilters
 from app.schemas.player_card import (
     MAX_PLAYER_CARD_PHOTOS,
     PlayerCardPatch,
     PlayerCardWrite,
 )
+from app.services.list_query import apply_pagination, apply_sort, ilike_pattern, jsonb_array_length
 
 
 async def ensure_owner_exists(session: AsyncSession, owner_user_id: uuid.UUID) -> bool:
@@ -19,14 +21,36 @@ async def ensure_owner_exists(session: AsyncSession, owner_user_id: uuid.UUID) -
 async def list_player_cards(
     session: AsyncSession,
     owner_user_id: uuid.UUID,
+    *,
+    filters: PlayerCardListFilters | None = None,
 ) -> tuple[str | None, list[PlayerCard]]:
     if not await ensure_owner_exists(session, owner_user_id):
         return "owner_not_found", []
-    result = await session.execute(
-        select(PlayerCard)
-        .where(PlayerCard.owner_user_id == owner_user_id)
-        .order_by(PlayerCard.created_at.asc())
-    )
+    filters = filters or PlayerCardListFilters()
+    stmt = select(PlayerCard).where(PlayerCard.owner_user_id == owner_user_id)
+    if filters.q:
+        pattern = ilike_pattern(filters.q)
+        stmt = stmt.where(
+            or_(
+                PlayerCard.nickname.ilike(pattern),
+                PlayerCard.first_name.ilike(pattern),
+                PlayerCard.last_name.ilike(pattern),
+                PlayerCard.club.ilike(pattern),
+                PlayerCard.gomafia_url.ilike(pattern),
+            )
+        )
+    if filters.has_photos is True:
+        stmt = stmt.where(jsonb_array_length(PlayerCard.photo_urls) > 0)
+    elif filters.has_photos is False:
+        stmt = stmt.where(jsonb_array_length(PlayerCard.photo_urls) == 0)
+    sort_column = {
+        "created_at": PlayerCard.created_at,
+        "updated_at": PlayerCard.updated_at,
+        "nickname": PlayerCard.nickname,
+    }[filters.sort_by]
+    stmt = apply_sort(stmt, sort_column, filters.sort_order)
+    stmt = apply_pagination(stmt, limit=filters.limit, offset=filters.offset)
+    result = await session.execute(stmt)
     return None, list(result.scalars().all())
 
 
