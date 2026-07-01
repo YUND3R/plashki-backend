@@ -94,6 +94,10 @@ class UserProfile(Base):
         back_populates="user",
         cascade="all, delete-orphan",
     )
+    overlay_design_access: Mapped[list["UserOverlayDesignAccess"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
 
     def is_subscription_active(self) -> bool:
         if self.subscription == Subscription.FREE:
@@ -412,4 +416,32 @@ class FeedbackMessage(Base):
     )
 
     user: Mapped["UserProfile"] = relationship(back_populates="feedback_messages")
+
+
+class UserOverlayDesignAccess(Base):
+    """Аренда плашки (overlay design) на 48 часов после оплаты."""
+
+    __tablename__ = "user_overlay_design_access"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("user_profile.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    design_code: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    user: Mapped["UserProfile"] = relationship(back_populates="overlay_design_access")
 

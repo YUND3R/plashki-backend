@@ -12,12 +12,7 @@ def test_ilike_pattern_trims_whitespace() -> None:
 
 def test_lobby_list_filter_defaults() -> None:
     filters = LobbyListFilters()
-    assert filters.q is None
-    assert filters.overlay_design is None
-    assert filters.sort_by == "created_at"
-    assert filters.sort_order == "desc"
-    assert filters.limit is None
-    assert filters.offset == 0
+    assert filters.source == "all"
 
 
 def test_player_card_list_filter_defaults() -> None:

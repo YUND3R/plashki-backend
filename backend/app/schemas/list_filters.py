@@ -2,7 +2,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from app.db.base import OverlayDesign, Role, Subscription
+from app.db.base import Role, Subscription
 
 
 class ListPaginationParams(BaseModel):
@@ -10,11 +10,14 @@ class ListPaginationParams(BaseModel):
     offset: int = Field(default=0, ge=0)
 
 
-class LobbyListFilters(ListPaginationParams):
-    q: str | None = Field(default=None, max_length=120)
-    overlay_design: OverlayDesign | None = None
-    sort_by: Literal["created_at", "title", "max_players"] = "created_at"
-    sort_order: Literal["asc", "desc"] = "desc"
+class LobbyListFilters(BaseModel):
+    source: Literal["all", "created", "imported"] = Field(
+        default="all",
+        description=(
+            "all — все лобби; created — созданные вручную; "
+            "imported — импортированные из Gomafia."
+        ),
+    )
 
 
 class PlayerCardListFilters(ListPaginationParams):

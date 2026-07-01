@@ -28,6 +28,7 @@ from app.routers import dev as dev_routes
 from app.routers import feedback as feedback_routes
 from app.routers import nanobanana as nanobanana_routes
 from app.routers import player_card as player_card_routes
+from app.routers import shop as shop_routes
 from app.schemas.list_filters import AdminUserListFilters, LobbyListFilters
 from app.schemas.lobby import (
     ActiveOverlayLobbyResponse,
@@ -383,6 +384,32 @@ async def lifespan(_app: FastAPI):
         await conn.execute(
             text(
                 """
+                CREATE TABLE IF NOT EXISTS user_overlay_design_access (
+                    id UUID PRIMARY KEY,
+                    user_id UUID NOT NULL REFERENCES user_profile(id) ON DELETE CASCADE,
+                    design_code VARCHAR(64) NOT NULL,
+                    expires_at TIMESTAMPTZ NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_overlay_design_access_user_design "
+                "ON user_overlay_design_access(user_id, design_code)"
+            )
+        )
+        await conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_user_overlay_design_access_expires_at "
+                "ON user_overlay_design_access(expires_at)"
+            )
+        )
+        await conn.execute(
+            text(
+                """
                 CREATE TABLE IF NOT EXISTS _applied_schema_patch (
                     id TEXT PRIMARY KEY
                 )
@@ -502,6 +529,7 @@ if settings.dev_endpoints_enabled:
 app.include_router(auth_routes.router)
 app.include_router(feedback_routes.router)
 app.include_router(player_card_routes.router)
+app.include_router(shop_routes.router)
 app.include_router(nanobanana_routes.router)
 
 
@@ -794,7 +822,8 @@ async def get_imported_tournament_participants(
     "/lobbies",
     tags=["lobbies"],
     response_model=list[GameLobbyPublic],
-    summary="Лобби, созданные текущим пользователем",
+    summary="Лобби текущего пользователя",
+    description="Фильтр source: all (все), created (созданные вручную), imported (из Gomafia).",
 )
 async def get_my_lobbies(
     session: AsyncSession = Depends(get_session),
@@ -808,7 +837,8 @@ async def get_my_lobbies(
     "/lobbies/count",
     tags=["lobbies"],
     response_model=LobbiesTotalResponse,
-    summary="Сколько лобби создано текущим пользователем",
+    summary="Сколько лобби у текущего пользователя",
+    description="Тот же фильтр source, что и у GET /lobbies.",
 )
 async def get_lobbies_count(
     session: AsyncSession = Depends(get_session),
@@ -1038,10 +1068,10 @@ async def patch_lobby_overlay_design(
         raise HTTPException(status_code=404, detail="Хост лобби не найден")
     if err == "unknown_design":
         raise HTTPException(status_code=404, detail="Дизайн overlay не найден")
-    if err == "subscription_required":
+    if err == "design_access_required":
         raise HTTPException(
             status_code=403,
-            detail="Этот дизайн недоступен для текущей подписки хоста.",
+            detail="Нет активной аренды этой плашки. Оплатите доступ в магазине.",
         )
     assert lobby is not None
     return lobby

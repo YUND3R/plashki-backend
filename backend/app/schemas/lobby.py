@@ -136,9 +136,12 @@ class SetBestMoveBody(BaseModel):
 class LobbyOverlayDesignOption(BaseModel):
     code: OverlayDesign
     title: str
-    required_subscription: Subscription
+    price_rub: int
+    rental_hours: int
     animations_supported: bool
     selectable: bool
+    access_expires_at: datetime | None = None
+    access_unlimited: bool = False
 
 
 class LobbyOverlayDesignsResponse(BaseModel):
@@ -165,6 +168,7 @@ class LobbyOverlayStateResponse(BaseModel):
     selected_overlay_design: OverlayDesign
     active_overlay_screen: str
     design_catalog: list[LobbyOverlayDesignOption]
+    design_access_active: bool
     sheriff_check: list[str]
     best_move: list[str]
     players: list[OverlayPlayerState]

@@ -1,10 +1,10 @@
 import uuid
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, select, update, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.base import GameRole, GameStatus, OverlayDesign, Subscription
+from app.db.base import GameRole, GameStatus, OverlayDesign
 from app.db.models import GameLobby, LobbyMembership, PlayerCard, UserProfile
 from app.schemas.list_filters import LobbyListFilters
 from app.schemas.lobby import (
@@ -22,50 +22,53 @@ from app.schemas.lobby import (
     OverlayLiveStateResponse,
     OverlayPlayerState,
 )
-from app.services.list_query import apply_pagination, apply_sort, ilike_pattern
+from app.core.overlay_design_catalog import get_catalog_entry
+from app.services.overlay_design_access import (
+    build_design_options_for_user,
+    host_has_active_design_access,
+    user_can_use_design,
+)
 
 
-_SUBSCRIPTION_ORDER: dict[Subscription, int] = {
-    Subscription.FREE: 0,
-    Subscription.STANDARD: 1,
-    Subscription.PREMIUM: 2,
-}
-
-_OVERLAY_DESIGN_CATALOG: dict[OverlayDesign, dict[str, object]] = {
-    OverlayDesign.MASTERS_YUG25: {
-        "title": "Мастерс ЮГ25",
-        "required_subscription": Subscription.FREE,
-        "animations_supported": True,
-    },
-    OverlayDesign.CLASSIC: {
-        "title": "Classic",
-        "required_subscription": Subscription.FREE,
-        "animations_supported": True,
-    },
-    OverlayDesign.PLUS: {
-        "title": "Plus",
-        "required_subscription": Subscription.FREE,
-        "animations_supported": True,
-    },
-}
+async def _lobby_design_catalog(
+    session: AsyncSession,
+    host_user_id: uuid.UUID | None,
+) -> list[LobbyOverlayDesignOption]:
+    return await build_design_options_for_user(session, host_user_id)
 
 
-def _build_design_options(host_subscription: Subscription) -> list[LobbyOverlayDesignOption]:
-    options: list[LobbyOverlayDesignOption] = []
-    for code, raw in _OVERLAY_DESIGN_CATALOG.items():
-        required_subscription = raw["required_subscription"]
-        assert isinstance(required_subscription, Subscription)
-        animations_supported = bool(raw["animations_supported"])
-        options.append(
-            LobbyOverlayDesignOption(
-                code=code,
-                title=str(raw["title"]),
-                required_subscription=required_subscription,
-                animations_supported=animations_supported,
-                selectable=_has_subscription_access(host_subscription, required_subscription),
+async def _build_lobby_overlay_state_response(
+    session: AsyncSession,
+    lobby: GameLobby,
+) -> LobbyOverlayStateResponse:
+    members = sorted(lobby.member_links, key=lambda m: (m.seat_order, m.joined_at))
+    players: list[OverlayPlayerState] = []
+    for m in members:
+        players.append(
+            OverlayPlayerState(
+                seat_order=m.seat_order,
+                membership_id=m.id,
+                nickname=m.player_card.nickname,
+                lobby_photo_url=m.lobby_photo_url,
+                game_role=m.game_role.value if m.game_role else None,
+                status=m.status.value if m.status else None,
             )
         )
-    return options
+    design_access_active = await host_has_active_design_access(
+        session,
+        lobby.host_user_id,
+        lobby.selected_overlay_design,
+    )
+    return LobbyOverlayStateResponse(
+        lobby_id=lobby.id,
+        selected_overlay_design=lobby.selected_overlay_design,
+        active_overlay_screen=lobby.active_overlay_screen,
+        design_catalog=await _lobby_design_catalog(session, lobby.host_user_id),
+        design_access_active=design_access_active,
+        sheriff_check=list(lobby.sheriff_check or []),
+        best_move=list(lobby.best_move or []),
+        players=players,
+    )
 
 
 def _build_imported_state(lobby: GameLobby) -> ImportedLobbyState | None:
@@ -123,19 +126,18 @@ async def count_game_lobbies(
     return int((await session.execute(stmt)).scalar_one())
 
 
-def _lobby_sort_column(sort_by: str):
-    return {
-        "created_at": GameLobby.created_at,
-        "title": GameLobby.title,
-        "max_players": GameLobby.max_players,
-    }[sort_by]
+def _is_imported_lobby_expr():
+    return and_(
+        GameLobby.imported_source_url.isnot(None),
+        func.length(func.btrim(GameLobby.imported_source_url)) > 0,
+    )
 
 
 def _apply_lobby_list_filters(stmt, filters: LobbyListFilters):
-    if filters.q:
-        stmt = stmt.where(GameLobby.title.ilike(ilike_pattern(filters.q)))
-    if filters.overlay_design is not None:
-        stmt = stmt.where(GameLobby.selected_overlay_design == filters.overlay_design)
+    if filters.source == "created":
+        stmt = stmt.where(~_is_imported_lobby_expr())
+    elif filters.source == "imported":
+        stmt = stmt.where(_is_imported_lobby_expr())
     return stmt
 
 
@@ -156,11 +158,9 @@ async def list_lobbies_for_host(
         )
     )
     stmt = _apply_lobby_list_filters(stmt, filters)
-    stmt = apply_sort(stmt, _lobby_sort_column(filters.sort_by), filters.sort_order)
-    stmt = apply_pagination(stmt, limit=filters.limit, offset=filters.offset)
+    stmt = stmt.order_by(GameLobby.created_at.desc())
     lobbies = (await session.execute(stmt)).scalars().all()
-    host = await session.get(UserProfile, host_user_id)
-    host_subscription = host.subscription if host else Subscription.FREE
+    design_catalog = await _lobby_design_catalog(session, host_user_id)
 
     out: list[GameLobbyPublic] = []
     for lobby in lobbies:
@@ -192,7 +192,7 @@ async def list_lobbies_for_host(
                 host_user_id=lobby.host_user_id,
                 selected_overlay_design=lobby.selected_overlay_design.value,
                 active_overlay_screen=lobby.active_overlay_screen,
-                design_catalog=_build_design_options(host_subscription),
+                design_catalog=design_catalog,
                 sheriff_check=list(lobby.sheriff_check or []),
                 best_move=list(lobby.best_move or []),
                 imported_state=_build_imported_state(lobby),
@@ -224,7 +224,7 @@ async def get_lobby_with_players(
     if viewer_user_id is not None and lobby.host_user_id != viewer_user_id:
         return None
     host = await session.get(UserProfile, lobby.host_user_id) if lobby.host_user_id else None
-    host_subscription = host.subscription if host else Subscription.FREE
+    design_catalog = await _lobby_design_catalog(session, lobby.host_user_id)
     members = sorted(lobby.member_links, key=lambda m: (m.seat_order, m.joined_at))
     players = []
     for m in members:
@@ -252,7 +252,7 @@ async def get_lobby_with_players(
         host_user_id=lobby.host_user_id,
         selected_overlay_design=lobby.selected_overlay_design.value,
         active_overlay_screen=lobby.active_overlay_screen,
-        design_catalog=_build_design_options(host_subscription),
+        design_catalog=design_catalog,
         sheriff_check=list(lobby.sheriff_check or []),
         best_move=list(lobby.best_move or []),
         imported_state=_build_imported_state(lobby),
@@ -278,6 +278,7 @@ async def create_lobby(
     session.add(lobby)
     await session.commit()
     await session.refresh(lobby)
+    design_catalog = await _lobby_design_catalog(session, host_user_id)
     return None, GameLobbyPublic(
         id=lobby.id,
         overlay_public_id=lobby.overlay_public_id,
@@ -286,7 +287,7 @@ async def create_lobby(
         host_user_id=lobby.host_user_id,
         selected_overlay_design=lobby.selected_overlay_design.value,
         active_overlay_screen=lobby.active_overlay_screen,
-        design_catalog=_build_design_options(host.subscription),
+        design_catalog=design_catalog,
         sheriff_check=list(lobby.sheriff_check or []),
         best_move=list(lobby.best_move or []),
         imported_state=_build_imported_state(lobby),
@@ -422,8 +423,33 @@ async def list_imported_tournament_participants(
     )
 
 
-def _has_subscription_access(user_subscription: Subscription, required: Subscription) -> bool:
-    return _SUBSCRIPTION_ORDER[user_subscription] >= _SUBSCRIPTION_ORDER[required]
+async def get_overlay_design_options(
+    session: AsyncSession,
+    lobby_id: uuid.UUID,
+    viewer_user_id: uuid.UUID | None = None,
+) -> LobbyOverlayDesignsResponse | None:
+    lobby = await session.get(GameLobby, lobby_id)
+    if lobby is None:
+        return None
+    if viewer_user_id is not None and lobby.host_user_id != viewer_user_id:
+        return None
+    return LobbyOverlayDesignsResponse(
+        lobby_id=lobby.id,
+        selected_overlay_design=lobby.selected_overlay_design,
+        options=await _lobby_design_catalog(session, lobby.host_user_id),
+    )
+
+
+async def get_overlay_design_catalog_for_user(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+) -> OverlayDesignCatalogResponse | None:
+    user = await session.get(UserProfile, user_id)
+    if user is None:
+        return None
+    return OverlayDesignCatalogResponse(
+        options=await build_design_options_for_user(session, user_id)
+    )
 
 
 async def _require_lobby_host(
@@ -437,35 +463,6 @@ async def _require_lobby_host(
     if lobby.host_user_id is None or lobby.host_user_id != acting_user_id:
         return "not_host", None
     return None, lobby
-
-
-async def get_overlay_design_options(
-    session: AsyncSession,
-    lobby_id: uuid.UUID,
-    viewer_user_id: uuid.UUID | None = None,
-) -> LobbyOverlayDesignsResponse | None:
-    lobby = await session.get(GameLobby, lobby_id)
-    if lobby is None:
-        return None
-    if viewer_user_id is not None and lobby.host_user_id != viewer_user_id:
-        return None
-    host = await session.get(UserProfile, lobby.host_user_id) if lobby.host_user_id else None
-    host_subscription = host.subscription if host else Subscription.FREE
-    return LobbyOverlayDesignsResponse(
-        lobby_id=lobby.id,
-        selected_overlay_design=lobby.selected_overlay_design,
-        options=_build_design_options(host_subscription),
-    )
-
-
-async def get_overlay_design_catalog_for_user(
-    session: AsyncSession,
-    user_id: uuid.UUID,
-) -> OverlayDesignCatalogResponse | None:
-    user = await session.get(UserProfile, user_id)
-    if user is None:
-        return None
-    return OverlayDesignCatalogResponse(options=_build_design_options(user.subscription))
 
 
 async def set_active_overlay_lobby(
@@ -548,13 +545,10 @@ async def set_lobby_overlay_design(
     if host is None:
         return "host_not_found", None
 
-    raw = _OVERLAY_DESIGN_CATALOG.get(overlay_design)
-    if raw is None:
+    if get_catalog_entry(overlay_design) is None:
         return "unknown_design", None
-    required_subscription = raw["required_subscription"]
-    assert isinstance(required_subscription, Subscription)
-    if not _has_subscription_access(host.subscription, required_subscription):
-        return "subscription_required", None
+    if not await user_can_use_design(session, acting_user_id, overlay_design):
+        return "design_access_required", None
 
     lobby.selected_overlay_design = overlay_design
     await session.commit()
@@ -595,32 +589,7 @@ async def get_lobby_overlay_state(
         return None
     if viewer_user_id is not None and lobby.host_user_id != viewer_user_id:
         return None
-    host = await session.get(UserProfile, lobby.host_user_id) if lobby.host_user_id else None
-    host_subscription = host.subscription if host else Subscription.FREE
-
-    members = sorted(lobby.member_links, key=lambda m: (m.seat_order, m.joined_at))
-    players: list[OverlayPlayerState] = []
-    for m in members:
-        players.append(
-            OverlayPlayerState(
-                seat_order=m.seat_order,
-                membership_id=m.id,
-                nickname=m.player_card.nickname,
-                lobby_photo_url=m.lobby_photo_url,
-                game_role=m.game_role.value if m.game_role else None,
-                status=m.status.value if m.status else None,
-            )
-        )
-
-    return LobbyOverlayStateResponse(
-        lobby_id=lobby.id,
-        selected_overlay_design=lobby.selected_overlay_design,
-        active_overlay_screen=lobby.active_overlay_screen,
-        design_catalog=_build_design_options(host_subscription),
-        sheriff_check=list(lobby.sheriff_check or []),
-        best_move=list(lobby.best_move or []),
-        players=players,
-    )
+    return await _build_lobby_overlay_state_response(session, lobby)
 
 
 async def get_lobby_overlay_state_by_public_id(
@@ -638,32 +607,7 @@ async def get_lobby_overlay_state_by_public_id(
     lobby = result.scalar_one_or_none()
     if lobby is None:
         return None
-    host = await session.get(UserProfile, lobby.host_user_id) if lobby.host_user_id else None
-    host_subscription = host.subscription if host else Subscription.FREE
-
-    members = sorted(lobby.member_links, key=lambda m: (m.seat_order, m.joined_at))
-    players: list[OverlayPlayerState] = []
-    for m in members:
-        players.append(
-            OverlayPlayerState(
-                seat_order=m.seat_order,
-                membership_id=m.id,
-                nickname=m.player_card.nickname,
-                lobby_photo_url=m.lobby_photo_url,
-                game_role=m.game_role.value if m.game_role else None,
-                status=m.status.value if m.status else None,
-            )
-        )
-
-    return LobbyOverlayStateResponse(
-        lobby_id=lobby.id,
-        selected_overlay_design=lobby.selected_overlay_design,
-        active_overlay_screen=lobby.active_overlay_screen,
-        design_catalog=_build_design_options(host_subscription),
-        sheriff_check=list(lobby.sheriff_check or []),
-        best_move=list(lobby.best_move or []),
-        players=players,
-    )
+    return await _build_lobby_overlay_state_response(session, lobby)
 
 
 async def set_lobby_sheriff_check(
