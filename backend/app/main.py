@@ -351,6 +351,12 @@ async def lifespan(_app: FastAPI):
         )
         await conn.execute(
             text(
+                "ALTER TABLE user_profile ADD COLUMN IF NOT EXISTS token_version "
+                "SMALLINT NOT NULL DEFAULT 0"
+            )
+        )
+        await conn.execute(
+            text(
                 "ALTER TABLE user_profile ADD COLUMN IF NOT EXISTS active_overlay_lobby_id UUID NULL"
             )
         )

@@ -65,30 +65,32 @@ async def reset_password_by_signed(
     token_id: uuid.UUID,
     signature: str,
     new_password: str,
-) -> str:
+) -> tuple[str, UserProfile | None]:
     now = datetime.now(UTC)
     token_row = await session.get(PasswordResetToken, token_id)
     if token_row is None:
-        return "invalid_token"
+        return "invalid_token", None
     if token_row.token_hash is not None:
-        return "invalid_token"
+        return "invalid_token", None
     if token_row.used_at is not None:
-        return "invalid_token"
+        return "invalid_token", None
     if token_row.expires_at <= now:
-        return "expired_token"
+        return "expired_token", None
     if not verify_password_reset_hmac(
         token_row.id, token_row.user_id, token_row.expires_at, signature
     ):
-        return "invalid_token"
+        return "invalid_token", None
 
     user = await session.get(UserProfile, token_row.user_id)
     if user is None:
-        return "user_not_found"
+        return "user_not_found", None
 
     user.hashed_password = hash_password(new_password)
+    user.token_version += 1
     token_row.used_at = now
     await session.commit()
-    return "ok"
+    await session.refresh(user)
+    return "ok", user
 
 
 async def reset_password_by_token(
@@ -96,7 +98,7 @@ async def reset_password_by_token(
     *,
     token: str,
     new_password: str,
-) -> str:
+) -> tuple[str, UserProfile | None]:
     token_hash = _hash_token(token.strip())
     now = datetime.now(UTC)
     result = await session.execute(
@@ -104,17 +106,19 @@ async def reset_password_by_token(
     )
     token_row = result.scalars().first()
     if token_row is None:
-        return "invalid_token"
+        return "invalid_token", None
     if token_row.used_at is not None:
-        return "invalid_token"
+        return "invalid_token", None
     if token_row.expires_at <= now:
-        return "expired_token"
+        return "expired_token", None
 
     user = await session.get(UserProfile, token_row.user_id)
     if user is None:
-        return "user_not_found"
+        return "user_not_found", None
 
     user.hashed_password = hash_password(new_password)
+    user.token_version += 1
     token_row.used_at = now
     await session.commit()
-    return "ok"
+    await session.refresh(user)
+    return "ok", user

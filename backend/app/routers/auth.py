@@ -80,6 +80,19 @@ def _set_csrf_cookie(response: Response, csrf_token: str) -> None:
     )
 
 
+def _issue_auth_session(
+    response: Response,
+    user: UserProfile,
+    *,
+    message: str = "Вы успешно вошли в аккаунт.",
+) -> AuthSessionResponse:
+    token = create_access_token(user_id=user.id, token_version=user.token_version)
+    csrf_token = _new_csrf_token()
+    _set_access_cookie(response, token)
+    _set_csrf_cookie(response, csrf_token)
+    return AuthSessionResponse(message=message)
+
+
 def _clear_access_cookie(response: Response) -> None:
     response.delete_cookie(
         key=settings.auth_cookie_name,
@@ -320,11 +333,7 @@ async def login(
                 "Можно запросить повтор: POST /auth/resend-verification."
             ),
         )
-    token = create_access_token(user_id=user.id)
-    csrf_token = _new_csrf_token()
-    _set_access_cookie(response, token)
-    _set_csrf_cookie(response, csrf_token)
-    return AuthSessionResponse(message="Вы успешно вошли в аккаунт.")
+    return _issue_auth_session(response, user)
 
 
 @router.get(
@@ -395,11 +404,11 @@ async def verify_email(
     else:
         raise HTTPException(status_code=422, detail="Нужны token_id и signature или code.")
     if result == "ok" and user is not None:
-        token = create_access_token(user_id=user.id)
-        csrf_token = _new_csrf_token()
-        _set_access_cookie(response, token)
-        _set_csrf_cookie(response, csrf_token)
-        return AuthSessionResponse(message="Email подтверждён. Вы вошли в аккаунт.")
+        return _issue_auth_session(
+            response,
+            user,
+            message="Email подтверждён. Вы вошли в аккаунт.",
+        )
     if result == "conflict":
         raise HTTPException(
             status_code=409,
@@ -529,30 +538,37 @@ async def forgot_password(
 
 @router.post(
     "/reset-password",
-    response_model=MessageResponse,
+    response_model=AuthSessionResponse,
     summary="Сброс пароля: token_id+signature или устаревший token",
+    description="После успешного сброса пароля выдаёт новую сессию в HttpOnly cookie.",
 )
 async def reset_password(
     body: ResetPasswordBody,
+    response: Response,
     session: AsyncSession = Depends(get_session),
-) -> MessageResponse:
+) -> AuthSessionResponse:
+    user = None
     if body.token_id is not None and body.signature:
-        result = await password_reset_service.reset_password_by_signed(
+        result, user = await password_reset_service.reset_password_by_signed(
             session,
             token_id=body.token_id,
             signature=body.signature,
             new_password=body.new_password,
         )
     elif body.token:
-        result = await password_reset_service.reset_password_by_token(
+        result, user = await password_reset_service.reset_password_by_token(
             session,
             token=body.token,
             new_password=body.new_password,
         )
     else:
         raise HTTPException(status_code=422, detail="Нужны token_id и signature или token.")
-    if result == "ok":
-        return MessageResponse(message="Пароль успешно обновлен.")
+    if result == "ok" and user is not None:
+        return _issue_auth_session(
+            response,
+            user,
+            message="Пароль обновлён. Вы вошли в аккаунт.",
+        )
     if result == "expired_token":
         raise HTTPException(status_code=400, detail="Токен сброса просрочен.")
     raise HTTPException(status_code=400, detail="Неверный токен сброса.")
@@ -586,24 +602,29 @@ async def reset_password_form_get(
 
 @router.post(
     "/reset-password-form",
-    response_model=MessageResponse,
+    response_model=AuthSessionResponse,
     summary="Отправка формы сброса",
     include_in_schema=False,
 )
 async def reset_password_form_post(
+    response: Response,
     token_id: uuid.UUID = Form(),
     signature: str = Form(min_length=64, max_length=64),
     new_password: str = Form(min_length=8, max_length=128),
     session: AsyncSession = Depends(get_session),
-) -> MessageResponse:
-    result = await password_reset_service.reset_password_by_signed(
+) -> AuthSessionResponse:
+    result, user = await password_reset_service.reset_password_by_signed(
         session,
         token_id=token_id,
         signature=signature,
         new_password=new_password,
     )
-    if result == "ok":
-        return MessageResponse(message="Пароль успешно обновлен. Можно войти.")
+    if result == "ok" and user is not None:
+        return _issue_auth_session(
+            response,
+            user,
+            message="Пароль обновлён. Вы вошли в аккаунт.",
+        )
     if result == "expired_token":
         raise HTTPException(status_code=400, detail="Ссылка сброса просрочена.")
     raise HTTPException(status_code=400, detail="Неверная ссылка сброса.")

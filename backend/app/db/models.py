@@ -54,6 +54,11 @@ class UserProfile(Base):
     # В БД могла остаться колонка от старой схемы; NOT NULL — задаём при регистрации (часто = username).
     nickname: Mapped[str] = mapped_column(String(255), nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    token_version: Mapped[int] = mapped_column(
+        SmallInteger,
+        nullable=False,
+        server_default="0",
+    )
     email_verified_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,

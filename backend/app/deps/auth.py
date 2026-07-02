@@ -1,16 +1,20 @@
 import uuid
 import hmac
 
-from fastapi import HTTPException, Request
+from fastapi import Depends, HTTPException, Request
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.security import decode_access_token
+from app.core.security import decode_access_token_claims
+from app.db.models import UserProfile
+from app.db.session import get_session
 
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS", "TRACE"}
 
 
-def get_current_user_id(
+async def get_current_user_id(
     request: Request,
+    session: AsyncSession = Depends(get_session),
 ) -> uuid.UUID:
     token = (request.cookies.get(settings.auth_cookie_name) or "").strip()
 
@@ -38,10 +42,20 @@ def get_current_user_id(
             )
 
     try:
-        return decode_access_token(token)
+        claims = decode_access_token_claims(token)
     except ValueError:
         raise HTTPException(
             status_code=401,
             detail="Неверный или просроченный токен",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    user = await session.get(UserProfile, claims.user_id)
+    if user is None or user.token_version != claims.token_version:
+        raise HTTPException(
+            status_code=401,
+            detail="Сессия недействительна. Войдите снова.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return claims.user_id
