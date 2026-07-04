@@ -3,6 +3,8 @@
 .env.local
 .env.*.local
 !.env.example
+!.env.prod.example
+!.env.test.example
 
 # Python
 __pycache__/

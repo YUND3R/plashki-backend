@@ -23,6 +23,8 @@ services:
     env_file:
       - path: .env
         required: false
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-plashki}:${POSTGRES_PASSWORD:-plashki}@db:5432/${POSTGRES_DB:-plashki}
     ports:
       - "${API_PORT:-8000}:8000"
     volumes:

@@ -14,9 +14,9 @@ def _signing_key() -> bytes:
     raw = settings.jwt_secret_key.strip()
     if raw:
         return raw.encode("utf-8")
-    if settings.environment == "local":
+    if settings.environment in ("local", "development"):
         return b"local-unsigned-dev-only-change-JWT_SECRET_KEY"
-    raise RuntimeError("JWT_SECRET_KEY обязателен для подписи ссылок (кроме ENVIRONMENT=local)")
+    raise RuntimeError("JWT_SECRET_KEY обязателен для подписи ссылок (кроме ENVIRONMENT=local/development)")
 
 
 def _exp_ts(expires_at: datetime) -> int:
