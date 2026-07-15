@@ -27,7 +27,7 @@ Required:
 - `GHCR_TOKEN` - GitHub PAT with `read:packages`.
 - `PROD_ENV_FILE` - full multiline contents of backend production `.env`.
 
-Example `PROD_ENV_FILE` source: `backend/.env.prod.example` (fill with real values).
+Example `PROD_ENV_FILE` source: block **PRODUCTION** in `backend/.env.example`.
 
 ## 3) Prepare production host
 

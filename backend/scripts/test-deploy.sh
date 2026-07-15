@@ -8,13 +8,7 @@ COMPOSE_FILE="docker-compose.test.yml"
 API_PORT="${API_PORT:-8000}"
 
 if [[ ! -f .env ]]; then
-  if [[ -f .env.test.example ]]; then
-    cp .env.test.example .env
-    echo "Создан .env из .env.test.example"
-    echo "Отредактируйте YOUR_SERVER_IP и CORS_ORIGINS, затем запустите скрипт снова."
-    exit 1
-  fi
-  echo "Нет .env и .env.test.example"
+  echo "Создай .env: скопируй блок TEST VPS из .env.example"
   exit 1
 fi
 

@@ -9,8 +9,6 @@ venv
 .env
 .env.*
 !.env.example
-!.env.prod.example
-!.env.test.example
 .git
 .gitignore
 *.md

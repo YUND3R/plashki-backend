@@ -1,5 +1,5 @@
 # Тестовый деплой на VPS: HTTP, без GHCR, сборка из исходников.
-# cp .env.test.example .env  →  правки IP/CORS  →  docker compose -f docker-compose.test.yml up -d --build
+# cp .env.example → .env (блок TEST VPS) → GitHub secret TEST_ENV_FILE
 
 services:
   db:
