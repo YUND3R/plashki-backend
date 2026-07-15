@@ -116,5 +116,12 @@ jobs:
             docker compose -f docker-compose.test.yml up -d --build --remove-orphans
             docker compose -f docker-compose.test.yml ps
             set -a && . ./.env && set +a
-            curl -sf "http://127.0.0.1:${API_PORT:-8000}/health"
-            echo ""
+            for attempt in $(seq 1 30); do
+              if curl -fsS "http://127.0.0.1:${API_PORT:-8000}/health"; then
+                echo ""
+                exit 0
+              fi
+              sleep 2
+            done
+            docker compose -f docker-compose.test.yml logs --tail=100 api
+            exit 1
