@@ -533,7 +533,7 @@ async def get_active_overlay_state_for_user(
         OverlayLiveStateResponse(
             active_lobby_id=lobby.id,
             active_overlay_screen=lobby.active_overlay_screen,
-            show_victory_scores=lobby.show_victory_scores,
+            show_victory_scores=getattr(lobby, "show_victory_scores", False),
             selected_overlay_design=lobby.selected_overlay_design,
         ),
     )

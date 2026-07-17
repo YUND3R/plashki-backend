@@ -119,6 +119,7 @@ class OverlayLiveStateResponse(BaseModel):
     active_lobby_id: uuid.UUID | None
     active_overlay_screen: str
     selected_overlay_design: OverlayDesign
+    show_victory_scores: bool = False
 
 
 class SetSheriffCheckBody(BaseModel):

@@ -104,7 +104,13 @@ def test_overlay_state_reflects_new_active_lobby_after_patch() -> None:
     user_id = uuid.uuid4()
     lobby_id = uuid.uuid4()
     user = SimpleNamespace(id=user_id, active_overlay_lobby_id=None, updated_at=datetime.now(timezone.utc))
-    lobby = SimpleNamespace(id=lobby_id, host_user_id=user_id, active_overlay_screen="roles", selected_overlay_design=OverlayDesign.PLUS)
+    lobby = SimpleNamespace(
+        id=lobby_id,
+        host_user_id=user_id,
+        active_overlay_screen="roles",
+        selected_overlay_design=OverlayDesign.PLUS,
+        show_victory_scores=False,
+    )
     session = _FakeSession(user=user, lobbies={lobby_id: lobby})
 
     with _make_client(session, user_id) as client:
@@ -117,6 +123,7 @@ def test_overlay_state_reflects_new_active_lobby_after_patch() -> None:
     assert payload["active_lobby_id"] == str(lobby_id)
     assert payload["active_overlay_screen"] == "roles"
     assert payload["selected_overlay_design"] == "plus"
+    assert payload["show_victory_scores"] is False
 
 
 def test_overlay_state_auto_resets_when_active_lobby_missing() -> None:
