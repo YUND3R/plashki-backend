@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Enum, ForeignKey, SmallInteger, String, Uuid, func, text
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Numeric, SmallInteger, String, Uuid, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -238,6 +238,12 @@ class GameLobby(Base):
         nullable=False,
         server_default=text("'lobby'"),
     )
+    # Показывать командные и дополнительные баллы на экране победы.
+    show_victory_scores: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default=text("false"),
+    )
     # Массив из 5 отметок проверки шерифа (формат задаёт клиент/overlay).
     sheriff_check: Mapped[list[str]] = mapped_column(
         JSONB,
@@ -320,6 +326,18 @@ class LobbyMembership(Base):
     )
     # URL снимка только для отображения в лобби (должен входить в photo_urls карточки).
     lobby_photo_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    # ЛХ относится к конкретному месту за столом, а не ко всему лобби.
+    best_move: Mapped[list[str]] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'[]'::jsonb"),
+    )
+    # Корректировка итогового счёта игрока для экрана победы.
+    bonus_points: Mapped[float] = mapped_column(
+        Numeric(5, 1, asdecimal=False),
+        nullable=False,
+        server_default="0",
+    )
 
     lobby: Mapped["GameLobby"] = relationship(back_populates="member_links")
     player_card: Mapped["PlayerCard"] = relationship(back_populates="lobby_memberships")

@@ -98,6 +98,10 @@ class SetActiveOverlayScreenBody(BaseModel):
     )
 
 
+class SetVictoryScoresVisibilityBody(BaseModel):
+    show_scores: bool
+
+
 class SetActiveOverlayLobbyBody(BaseModel):
     lobby_id: str = Field(
         min_length=1,
@@ -126,11 +130,21 @@ class SetSheriffCheckBody(BaseModel):
 
 
 class SetBestMoveBody(BaseModel):
+    membership_id: uuid.UUID
     best_move: list[str] = Field(
         min_length=3,
         max_length=3,
         description="3 отметки best move, например ['X','X','X']",
     )
+
+
+class SetBonusPointEntry(BaseModel):
+    membership_id: uuid.UUID
+    points: float = Field(ge=-99.9, le=99.9, multiple_of=0.1)
+
+
+class SetLobbyBonusPointsBody(BaseModel):
+    bonus_points: list[SetBonusPointEntry] = Field(max_length=LOBBY_MAX_PLAYERS)
 
 
 class LobbyOverlayDesignOption(BaseModel):
@@ -161,6 +175,8 @@ class OverlayPlayerState(BaseModel):
     lobby_photo_url: str | None = None
     game_role: str | None
     status: str | None
+    best_move: list[str] = Field(default_factory=list)
+    bonus_points: float = 0
 
 
 class LobbyOverlayStateResponse(BaseModel):
@@ -205,6 +221,8 @@ class LobbyPlayerPublic(BaseModel):
     photo_urls: list[str]
     game_role: str | None
     status: str | None
+    best_move: list[str] = Field(default_factory=list)
+    bonus_points: float = 0
     joined_at: datetime
 
 
@@ -218,6 +236,7 @@ class GameLobbyPublic(BaseModel):
     host_user_id: uuid.UUID | None = None
     selected_overlay_design: str
     active_overlay_screen: str
+    show_victory_scores: bool = False
     design_catalog: list[LobbyOverlayDesignOption]
     sheriff_check: list[str]
     best_move: list[str]

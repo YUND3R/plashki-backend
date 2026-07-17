@@ -52,6 +52,8 @@ async def _build_lobby_overlay_state_response(
                 lobby_photo_url=m.lobby_photo_url,
                 game_role=m.game_role.value if m.game_role else None,
                 status=m.status.value if m.status else None,
+                best_move=list(m.best_move or []),
+                bonus_points=m.bonus_points,
             )
         )
     design_access_active = await host_has_active_design_access(
@@ -180,6 +182,8 @@ async def list_lobbies_for_host(
                     photo_urls=list(card.photo_urls),
                     game_role=m.game_role.value if m.game_role else None,
                     status=m.status.value if m.status else None,
+                    best_move=list(m.best_move or []),
+                    bonus_points=m.bonus_points,
                     joined_at=m.joined_at,
                 )
             )
@@ -192,6 +196,7 @@ async def list_lobbies_for_host(
                 host_user_id=lobby.host_user_id,
                 selected_overlay_design=lobby.selected_overlay_design.value,
                 active_overlay_screen=lobby.active_overlay_screen,
+                show_victory_scores=lobby.show_victory_scores,
                 design_catalog=design_catalog,
                 sheriff_check=list(lobby.sheriff_check or []),
                 best_move=list(lobby.best_move or []),
@@ -241,6 +246,8 @@ async def get_lobby_with_players(
                 photo_urls=list(card.photo_urls),
                 game_role=m.game_role.value if m.game_role else None,
                 status=m.status.value if m.status else None,
+                best_move=list(m.best_move or []),
+                bonus_points=m.bonus_points,
                 joined_at=m.joined_at,
             )
         )
@@ -252,6 +259,7 @@ async def get_lobby_with_players(
         host_user_id=lobby.host_user_id,
         selected_overlay_design=lobby.selected_overlay_design.value,
         active_overlay_screen=lobby.active_overlay_screen,
+        show_victory_scores=lobby.show_victory_scores,
         design_catalog=design_catalog,
         sheriff_check=list(lobby.sheriff_check or []),
         best_move=list(lobby.best_move or []),
@@ -287,6 +295,7 @@ async def create_lobby(
         host_user_id=lobby.host_user_id,
         selected_overlay_design=lobby.selected_overlay_design.value,
         active_overlay_screen=lobby.active_overlay_screen,
+        show_victory_scores=lobby.show_victory_scores,
         design_catalog=design_catalog,
         sheriff_check=list(lobby.sheriff_check or []),
         best_move=list(lobby.best_move or []),
@@ -524,6 +533,7 @@ async def get_active_overlay_state_for_user(
         OverlayLiveStateResponse(
             active_lobby_id=lobby.id,
             active_overlay_screen=lobby.active_overlay_screen,
+            show_victory_scores=lobby.show_victory_scores,
             selected_overlay_design=lobby.selected_overlay_design,
         ),
     )
@@ -567,6 +577,20 @@ async def set_lobby_active_overlay_screen(
     if lobby.host_user_id is None or lobby.host_user_id != acting_user_id:
         return "not_host", None
     lobby.active_overlay_screen = screen_key.strip()
+    await session.commit()
+    return None, await get_lobby_with_players(session, lobby_id)
+
+
+async def set_lobby_victory_scores_visibility(
+    session: AsyncSession,
+    lobby_id: uuid.UUID,
+    show_scores: bool,
+    acting_user_id: uuid.UUID,
+) -> tuple[str | None, GameLobbyPublic | None]:
+    err, lobby = await _require_lobby_host(session, lobby_id, acting_user_id)
+    if err or lobby is None:
+        return err, None
+    lobby.show_victory_scores = show_scores
     await session.commit()
     return None, await get_lobby_with_players(session, lobby_id)
 
@@ -644,6 +668,7 @@ async def clear_lobby_sheriff_check(
 async def set_lobby_best_move(
     session: AsyncSession,
     lobby_id: uuid.UUID,
+    membership_id: uuid.UUID,
     best_move: list[str],
     acting_user_id: uuid.UUID,
 ) -> tuple[str | None, GameLobbyPublic | None]:
@@ -652,7 +677,10 @@ async def set_lobby_best_move(
         return "lobby_not_found", None
     if lobby.host_user_id is None or lobby.host_user_id != acting_user_id:
         return "not_host", None
-    lobby.best_move = list(best_move)
+    membership = await session.get(LobbyMembership, membership_id)
+    if membership is None or membership.lobby_id != lobby_id:
+        return "membership_not_found", None
+    membership.best_move = list(best_move)
     await session.commit()
     return None, await get_lobby_with_players(session, lobby_id)
 
@@ -668,6 +696,35 @@ async def clear_lobby_best_move(
     if lobby.host_user_id is None or lobby.host_user_id != acting_user_id:
         return "not_host", None
     lobby.best_move = []
+    await session.execute(
+        update(LobbyMembership)
+        .where(LobbyMembership.lobby_id == lobby_id)
+        .values(best_move=[])
+    )
+    await session.commit()
+    return None, await get_lobby_with_players(session, lobby_id)
+
+
+async def set_lobby_bonus_points(
+    session: AsyncSession,
+    lobby_id: uuid.UUID,
+    bonus_points: list[tuple[uuid.UUID, float]],
+    acting_user_id: uuid.UUID,
+) -> tuple[str | None, GameLobbyPublic | None]:
+    err, _ = await _require_lobby_host(session, lobby_id, acting_user_id)
+    if err:
+        return err, None
+    membership_ids = [membership_id for membership_id, _ in bonus_points]
+    if len(membership_ids) != len(set(membership_ids)):
+        return "duplicate_membership", None
+    memberships = (
+        await session.execute(select(LobbyMembership).where(LobbyMembership.lobby_id == lobby_id))
+    ).scalars().all()
+    by_id = {membership.id: membership for membership in memberships}
+    if any(membership_id not in by_id for membership_id in membership_ids):
+        return "membership_not_found", None
+    for membership_id, points in bonus_points:
+        by_id[membership_id].bonus_points = points
     await session.commit()
     return None, await get_lobby_with_players(session, lobby_id)
 

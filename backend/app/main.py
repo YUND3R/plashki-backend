@@ -45,6 +45,7 @@ from app.schemas.lobby import (
     ReplaceLobbyMemberBody,
     SetActiveOverlayLobbyBody,
     SetBestMoveBody,
+    SetLobbyBonusPointsBody,
     SetGameRoleBody,
     SetActiveOverlayScreenBody,
     SetOverlayDesignBody,
@@ -52,6 +53,7 @@ from app.schemas.lobby import (
     SetSheriffCheckBody,
     SetLobbyStatusBody,
     SetLobbyMemberDisplayPhotoBody,
+    SetVictoryScoresVisibilityBody,
     SwapLobbySeatsBody,
 )
 from app.schemas.auth import (
@@ -86,8 +88,10 @@ from app.services.lobby import (
     set_lobby_overlay_design,
     set_lobby_active_overlay_screen,
     set_lobby_member_display_photo,
+    set_lobby_victory_scores_visibility,
     set_active_overlay_lobby,
     set_lobby_best_move,
+    set_lobby_bonus_points,
     set_lobby_sheriff_check,
     select_imported_lobby_variant,
     set_membership_game_role,
@@ -121,6 +125,12 @@ async def lifespan(_app: FastAPI):
         )
         await conn.execute(
             text(
+                "ALTER TABLE game_lobby ADD COLUMN IF NOT EXISTS show_victory_scores "
+                "BOOLEAN NOT NULL DEFAULT FALSE"
+            )
+        )
+        await conn.execute(
+            text(
                 "ALTER TABLE game_lobby ADD COLUMN IF NOT EXISTS sheriff_check "
                 "JSONB NOT NULL DEFAULT '[]'::jsonb"
             )
@@ -129,6 +139,24 @@ async def lifespan(_app: FastAPI):
             text(
                 "ALTER TABLE game_lobby ADD COLUMN IF NOT EXISTS best_move "
                 "JSONB NOT NULL DEFAULT '[]'::jsonb"
+            )
+        )
+        await conn.execute(
+            text(
+                "ALTER TABLE lobby_membership ADD COLUMN IF NOT EXISTS best_move "
+                "JSONB NOT NULL DEFAULT '[]'::jsonb"
+            )
+        )
+        await conn.execute(
+            text(
+                "ALTER TABLE lobby_membership ADD COLUMN IF NOT EXISTS bonus_points "
+                "SMALLINT NOT NULL DEFAULT 0"
+            )
+        )
+        await conn.execute(
+            text(
+                "ALTER TABLE lobby_membership ALTER COLUMN bonus_points "
+                "TYPE NUMERIC(5, 1) USING bonus_points::numeric"
             )
         )
         await conn.execute(
@@ -1112,6 +1140,29 @@ async def patch_lobby_overlay_screen(
 
 
 @app.patch(
+    "/lobbies/{lobby_id}/victory-scores",
+    tags=["lobbies", "overlay"],
+    response_model=GameLobbyPublic,
+    summary="Переключить отображение баллов на экране победы",
+)
+async def patch_lobby_victory_scores_visibility(
+    lobby_id: uuid.UUID,
+    body: SetVictoryScoresVisibilityBody,
+    session: AsyncSession = Depends(get_session),
+    acting_user_id: uuid.UUID = Depends(get_current_user_id),
+) -> GameLobbyPublic:
+    err, lobby = await set_lobby_victory_scores_visibility(
+        session, lobby_id, body.show_scores, acting_user_id
+    )
+    if err == "lobby_not_found":
+        raise HTTPException(status_code=404, detail="Лобби не найдено")
+    if err == "not_host":
+        raise HTTPException(status_code=403, detail="Менять отображение баллов может только хост лобби.")
+    assert lobby is not None
+    return lobby
+
+
+@app.patch(
     "/lobbies/{lobby_id}/sheriff-check",
     tags=["lobbies", "overlay"],
     response_model=GameLobbyPublic,
@@ -1173,15 +1224,43 @@ async def patch_lobby_best_move(
     acting_user_id: uuid.UUID = Depends(get_current_user_id),
 ) -> GameLobbyPublic:
     err, lobby = await set_lobby_best_move(
-        session, lobby_id, body.best_move, acting_user_id
+        session, lobby_id, body.membership_id, body.best_move, acting_user_id
     )
-    if err == "lobby_not_found":
+    if err in {"lobby_not_found", "membership_not_found"}:
         raise HTTPException(status_code=404, detail="Лобби не найдено")
     if err == "not_host":
         raise HTTPException(
             status_code=403,
             detail="Менять best_move может только хост лобби.",
         )
+    assert lobby is not None
+    return lobby
+
+
+@app.patch(
+    "/lobbies/{lobby_id}/bonus-points",
+    tags=["lobbies", "overlay"],
+    response_model=GameLobbyPublic,
+    summary="Сохранить доп. баллы игроков для экрана победы",
+)
+async def patch_lobby_bonus_points(
+    lobby_id: uuid.UUID,
+    body: SetLobbyBonusPointsBody,
+    session: AsyncSession = Depends(get_session),
+    acting_user_id: uuid.UUID = Depends(get_current_user_id),
+) -> GameLobbyPublic:
+    err, lobby = await set_lobby_bonus_points(
+        session,
+        lobby_id,
+        [(entry.membership_id, entry.points) for entry in body.bonus_points],
+        acting_user_id,
+    )
+    if err in {"lobby_not_found", "membership_not_found"}:
+        raise HTTPException(status_code=404, detail="Лобби или игрок не найден")
+    if err == "not_host":
+        raise HTTPException(status_code=403, detail="Менять доп. баллы может только хост лобби.")
+    if err == "duplicate_membership":
+        raise HTTPException(status_code=422, detail="Игрок повторяется в списке баллов.")
     assert lobby is not None
     return lobby
 
