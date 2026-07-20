@@ -26,10 +26,6 @@ curl -X POST http://IP:8000/dev/test-admin -H "Content-Type: application/json" -
 
 Фронт: `VITE_API_BASE_URL=http://IP:8000` в `.env.production` / `.env.local`
 
-## Перенос на другой VPS
-
-См. **`MIGRATE_VDS.md`** (бэкап → новый сервер → `restore.sh` → обновить `TEST_SSH_HOST` и фронт).
-
 ## Production
 
 Блок **PRODUCTION** из `.env.example` → secret **`PROD_ENV_FILE`**. См. `backup/PROD_CICD_SETUP.md`.
