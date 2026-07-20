@@ -86,6 +86,18 @@ jobs:
             requirements.txt \
             app
 
+      - name: Write and validate test .env
+        env:
+          TEST_ENV_FILE: ${{ secrets.TEST_ENV_FILE }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$TEST_ENV_FILE" > test.env
+          grep -q '^POSTGRES_USER=' test.env
+          grep -q '^POSTGRES_PASSWORD=' test.env
+          grep -q '^POSTGRES_DB=' test.env
+          grep -q '^ENVIRONMENT=' test.env
+          ! grep -q 'ТОТ_ЖЕ_ПАРОЛЬ' test.env || (echo "TEST_ENV_FILE: replace placeholder passwords" && exit 1)
+
       - name: Upload backend archive
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -96,23 +108,32 @@ jobs:
           source: backend-deploy.tgz
           target: ${{ secrets.TEST_APP_DIR }}
 
+      - name: Upload test .env
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.TEST_SSH_HOST }}
+          username: ${{ secrets.TEST_SSH_USER }}
+          key: ${{ secrets.TEST_SSH_PRIVATE_KEY }}
+          port: ${{ secrets.TEST_SSH_PORT }}
+          source: test.env
+          target: ${{ secrets.TEST_APP_DIR }}
+
       - name: Deploy stack on remote host
         uses: appleboy/ssh-action@v1.2.0
         env:
-          TEST_ENV_FILE: ${{ secrets.TEST_ENV_FILE }}
           TEST_APP_DIR: ${{ secrets.TEST_APP_DIR }}
         with:
           host: ${{ secrets.TEST_SSH_HOST }}
           username: ${{ secrets.TEST_SSH_USER }}
           key: ${{ secrets.TEST_SSH_PRIVATE_KEY }}
           port: ${{ secrets.TEST_SSH_PORT }}
-          envs: TEST_ENV_FILE,TEST_APP_DIR
+          envs: TEST_APP_DIR
           script: |
             set -euo pipefail
             cd "$TEST_APP_DIR"
             tar -xzf backend-deploy.tgz
             rm -f backend-deploy.tgz
-            printf '%s\n' "$TEST_ENV_FILE" > .env
+            mv -f test.env .env
             docker compose -f docker-compose.test.yml up -d --build --remove-orphans
             docker compose -f docker-compose.test.yml ps
             set -a && . ./.env && set +a

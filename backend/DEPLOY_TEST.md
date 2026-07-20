@@ -2,7 +2,8 @@
 
 ## 1. `.env`
 
-Скопируй блок **TEST VPS** из `.env.example`, раскомментируй, подставь IP → вставь в GitHub secret **`TEST_ENV_FILE`**.
+Скопируй **полный** рабочий `.env` (все строки: `POSTGRES_*`, `JWT_*`, `DATABASE_URL`, SMTP…) → GitHub secret **`TEST_ENV_FILE`**.  
+Не передавай через SSH одной строкой вручную — CI кладёт файл через SCP (см. `dev-cicd.yml`). Без placeholder-текста в паролях.
 
 ## 2. GitHub Secrets (environment `test`)
 
@@ -23,7 +24,11 @@ curl http://IP:8000/health
 curl -X POST http://IP:8000/dev/test-admin -H "Content-Type: application/json" -d '{"username":"admin","email":"a@t.local","password":"admin"}'
 ```
 
-Фронт: `VITE_API_URL=http://IP:8000` в `.env.local`
+Фронт: `VITE_API_BASE_URL=http://IP:8000` в `.env.production` / `.env.local`
+
+## Перенос на другой VPS
+
+См. **`MIGRATE_VDS.md`** (бэкап → новый сервер → `restore.sh` → обновить `TEST_SSH_HOST` и фронт).
 
 ## Production
 
