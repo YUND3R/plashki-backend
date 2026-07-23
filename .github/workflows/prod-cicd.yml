@@ -59,7 +59,7 @@ jobs:
           pip install -r requirements.txt pytest ruff flake8 pylint
 
       - name: Ruff
-        run: python -m ruff check app tests --ignore F401,F841
+        run: python -m ruff check app tests --select E4,E7,E9,F --ignore F401,F841
 
       - name: Flake8 (critical errors)
         run: python -m flake8 app tests --select=E9,F63,F7,F82 --show-source --statistics
