@@ -84,6 +84,8 @@ jobs:
             docker-compose.test.yml \
             Dockerfile \
             requirements.txt \
+            alembic.ini \
+            migrations \
             app
 
       - name: Write and validate test .env

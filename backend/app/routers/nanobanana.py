@@ -1,5 +1,4 @@
 import uuid
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,25 +7,14 @@ from app.core.config import settings
 from app.db.session import get_session
 from app.deps.auth import get_current_user_id
 from app.schemas.nanobanana import NanoBananaProcessResponse
-from app.services.nanobanana import process_with_nanobanana
-from app.services.photo_storage import ALLOWED_IMAGE_TYPES, public_file_url
+from app.media.application import ALLOWED_IMAGE_TYPES, InvalidUpload
+from app.media.ports import FileStorage
+from app.media.providers import get_file_storage
+from app.nanobanana.application import process_and_store_image
+from app.nanobanana.ports import NanoBananaClient
+from app.nanobanana.providers import get_nanobanana_client
 
 router = APIRouter(prefix="/images", tags=["images"])
-
-
-_EXT_BY_MIME: dict[str, str] = {
-    "image/png": ".png",
-    "image/jpeg": ".jpg",
-    "image/webp": ".webp",
-}
-
-
-def _upload_root() -> Path:
-    p = Path(settings.upload_dir)
-    if not p.is_absolute():
-        p = Path.cwd() / p
-    p.mkdir(parents=True, exist_ok=True)
-    return p
 
 
 @router.post(
@@ -42,6 +30,8 @@ async def process_image_via_nanobanana(
     negative_prompt: str | None = Form(default=None, max_length=4000),
     _owner_user_id: uuid.UUID = Depends(get_current_user_id),
     _session: AsyncSession = Depends(get_session),
+    client: NanoBananaClient = Depends(get_nanobanana_client),
+    storage: FileStorage = Depends(get_file_storage),
 ) -> NanoBananaProcessResponse:
     ct = (file.content_type or "").split(";")[0].strip().lower()
     if ct not in ALLOWED_IMAGE_TYPES:
@@ -57,24 +47,21 @@ async def process_image_via_nanobanana(
     if len(body) > max_bytes:
         raise HTTPException(status_code=413, detail=f"Файл больше {settings.upload_max_mb} МБ")
 
-    out_bytes, out_mime = await process_with_nanobanana(
-        image_bytes=body,
-        source_mime=ct,
-        prompt=prompt,
-        negative_prompt=negative_prompt,
-    )
-    ext = _EXT_BY_MIME.get(out_mime)
-    if ext is None:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Nano Banana вернул неподдерживаемый mime: {out_mime or 'unknown'}",
+    try:
+        url, out_mime, size = await process_and_store_image(
+            client,
+            storage,
+            image_bytes=body,
+            source_mime=ct,
+            prompt=prompt,
+            negative_prompt=negative_prompt,
+            request_base_url=str(request.base_url),
         )
-
-    name = f"{uuid.uuid4().hex}{ext}"
-    (_upload_root() / name).write_bytes(out_bytes)
+    except InvalidUpload as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
     return NanoBananaProcessResponse(
-        url=public_file_url(request, name),
+        url=url,
         output_mime=out_mime,
-        size_bytes=len(out_bytes),
+        size_bytes=size,
     )

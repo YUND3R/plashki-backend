@@ -23,6 +23,7 @@ from app.core.security import create_access_token
 from app.db.session import get_session
 from app.deps.auth import get_current_user_id
 from app.db.models import UserProfile
+from app.notifications.providers import get_notification_facade
 from app.schemas.auth import (
     AuthSessionResponse,
     ForgotPasswordBody,
@@ -33,7 +34,6 @@ from app.schemas.auth import (
     UserMe,
     VerifyEmailBody,
 )
-from app.services.alerting import alert_service
 from app.services import auth_login as auth_login_service
 from app.services import email_verification as email_verification_service
 from app.services import password_reset as password_reset_service
@@ -43,6 +43,7 @@ from app.services.email_verification_links import build_email_verification_link
 from app.services.photo_storage import remove_stored_file_if_ours, save_image_upload
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+alert_service = get_notification_facade()
 
 
 def _auth_cookie_domain() -> str | None:

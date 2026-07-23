@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 from app.core.overlay_design_catalog import OVERLAY_DESIGN_CATALOG
 from app.db.base import OverlayDesign, Role
-from app.services.overlay_design_access import (
+from app.commerce.application.overlay_designs import (
     compute_rental_expires_at,
     role_has_unlimited_design_access,
 )

@@ -1,0 +1,9 @@
+from typing import Protocol
+
+
+class FileStorage(Protocol):
+    def save(self, filename: str, body: bytes) -> None: ...
+
+    def delete(self, filename: str) -> None: ...
+
+    def public_url(self, filename: str, request_base_url: str = "") -> str: ...

@@ -3,6 +3,12 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.commerce.application.overlay_designs import (
+    SqlAlchemyOverlayDesignAccess,
+    grant_design_access,
+    list_user_design_access,
+)
+from app.core.overlay_design_catalog import get_catalog_entry
 from app.db.base import Role
 from app.db.models import UserProfile
 from app.db.session import get_session
@@ -11,13 +17,9 @@ from app.schemas.overlay_shop import (
     GrantOverlayDesignAccessBody,
     GrantOverlayDesignAccessResponse,
     OverlayDesignShopCatalogResponse,
+    OverlayDesignShopItem,
     UserOverlayDesignAccessListResponse,
-)
-from app.services.overlay_design_access import (
-    get_catalog_entry,
-    get_shop_catalog_for_user,
-    grant_design_access,
-    list_user_design_access,
+    UserOverlayDesignAccessPublic,
 )
 
 router = APIRouter(prefix="/shop", tags=["shop"])
@@ -32,7 +34,22 @@ async def get_overlay_design_shop_catalog(
     session: AsyncSession = Depends(get_session),
     user_id: uuid.UUID = Depends(get_current_user_id),
 ) -> OverlayDesignShopCatalogResponse:
-    return await get_shop_catalog_for_user(session, user_id)
+    options = await SqlAlchemyOverlayDesignAccess(session).options_for_user(user_id)
+    return OverlayDesignShopCatalogResponse(
+        items=[
+            OverlayDesignShopItem(
+                code=option.code,
+                title=option.title,
+                price_rub=option.price_rub,
+                rental_hours=option.rental_hours,
+                animations_supported=option.animations_supported,
+                selectable=option.selectable,
+                access_expires_at=option.access_expires_at,
+                access_unlimited=option.access_unlimited,
+            )
+            for option in options
+        ]
+    )
 
 
 @router.get(
@@ -44,7 +61,10 @@ async def get_my_overlay_design_access(
     session: AsyncSession = Depends(get_session),
     user_id: uuid.UUID = Depends(get_current_user_id),
 ) -> UserOverlayDesignAccessListResponse:
-    return await list_user_design_access(session, user_id)
+    items = await list_user_design_access(session, user_id)
+    return UserOverlayDesignAccessListResponse(
+        items=[UserOverlayDesignAccessPublic.model_validate(item) for item in items]
+    )
 
 
 @router.post(

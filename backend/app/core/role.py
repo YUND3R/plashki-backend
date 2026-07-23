@@ -4,7 +4,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import Role, Subscription
-from app.db.models import UserProfile
+from app.db.models import CommerceUserSubscription, UserProfile
 from app.schemas.list_filters import AdminUserListFilters
 from app.services.list_query import apply_pagination, apply_sort, ilike_pattern
 
@@ -97,7 +97,7 @@ async def admin_update_user_access(
     if role is not None:
         user.role = role
     if subscription is not None:
-        user.subscription = subscription
+        user.commerce_subscription.subscription = subscription
     await session.commit()
     await session.refresh(user)
     return None, user
@@ -129,7 +129,9 @@ async def admin_list_registered_users(
     if filters.role is not None:
         stmt = stmt.where(UserProfile.role == filters.role)
     if filters.subscription is not None:
-        stmt = stmt.where(UserProfile.subscription == filters.subscription)
+        stmt = stmt.join(UserProfile.commerce_subscription).where(
+            CommerceUserSubscription.subscription == filters.subscription
+        )
     sort_column = {
         "created_at": UserProfile.created_at,
         "username": UserProfile.username,

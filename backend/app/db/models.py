@@ -1,8 +1,21 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Numeric, SmallInteger, String, Uuid, func, text
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Numeric,
+    SmallInteger,
+    String,
+    Uuid,
+    func,
+    select,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import (
@@ -31,13 +44,6 @@ class UserProfile(Base):
         server_default=Role.USER.value,
     )
     
-    subscription: Mapped[Subscription] = mapped_column(
-        Enum(Subscription, native_enum=False, values_callable=lambda obj: [e.value for e in obj]),
-        nullable=False,
-        server_default=Subscription.FREE.value,
-    )
-
-
     username: Mapped[str] = mapped_column(String(55), unique=True, nullable=False)
     email: Mapped[str] = mapped_column(String(55), unique=True, index=True, nullable=False)
     first_name: Mapped[str] = mapped_column(
@@ -64,17 +70,6 @@ class UserProfile(Base):
         nullable=True,
         index=True,
     )
-    subscription_until: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True),
-        nullable=True,
-        index=True,
-    )
-    active_overlay_lobby_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid(as_uuid=True),
-        nullable=True,
-        index=True,
-    )
-
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -103,6 +98,78 @@ class UserProfile(Base):
         back_populates="user",
         cascade="all, delete-orphan",
     )
+    broadcast_settings: Mapped["BroadcastUserSettings"] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        lazy="joined",
+        single_parent=True,
+        uselist=False,
+    )
+    commerce_subscription: Mapped["CommerceUserSubscription"] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        lazy="joined",
+        single_parent=True,
+        uselist=False,
+    )
+
+    def __init__(self, **kwargs):
+        subscription = kwargs.pop("subscription", Subscription.FREE)
+        subscription_until = kwargs.pop("subscription_until", None)
+        active_lobby_id = kwargs.pop("active_overlay_lobby_id", None)
+        super().__init__(**kwargs)
+        self.commerce_subscription = CommerceUserSubscription(
+            subscription=subscription,
+            subscription_until=subscription_until,
+        )
+        self.broadcast_settings = BroadcastUserSettings(
+            active_overlay_lobby_id=active_lobby_id
+        )
+
+    @hybrid_property
+    def subscription(self) -> Subscription:
+        row = self.commerce_subscription
+        return row.subscription if row is not None else Subscription.FREE
+
+    @subscription.inplace.expression
+    @classmethod
+    def _subscription_expression(cls):
+        return (
+            select(CommerceUserSubscription.subscription)
+            .where(CommerceUserSubscription.user_id == cls.id)
+            .scalar_subquery()
+        )
+
+    @subscription.inplace.setter
+    def _set_subscription(self, value: Subscription) -> None:
+        if self.commerce_subscription is None:
+            self.commerce_subscription = CommerceUserSubscription(subscription=value)
+        else:
+            self.commerce_subscription.subscription = value
+
+    @hybrid_property
+    def subscription_until(self) -> datetime | None:
+        row = self.commerce_subscription
+        return row.subscription_until if row is not None else None
+
+    @subscription_until.inplace.setter
+    def _set_subscription_until(self, value: datetime | None) -> None:
+        if self.commerce_subscription is None:
+            self.commerce_subscription = CommerceUserSubscription(subscription_until=value)
+        else:
+            self.commerce_subscription.subscription_until = value
+
+    @hybrid_property
+    def active_overlay_lobby_id(self) -> uuid.UUID | None:
+        row = self.broadcast_settings
+        return row.active_overlay_lobby_id if row is not None else None
+
+    @active_overlay_lobby_id.inplace.setter
+    def _set_active_overlay_lobby_id(self, value: uuid.UUID | None) -> None:
+        if self.broadcast_settings is None:
+            self.broadcast_settings = BroadcastUserSettings(active_overlay_lobby_id=value)
+        else:
+            self.broadcast_settings.active_overlay_lobby_id = value
 
     def is_subscription_active(self) -> bool:
         if self.subscription == Subscription.FREE:
@@ -199,13 +266,6 @@ class GameLobby(Base):
         primary_key=True,
         default=uuid.uuid4,
     )
-    overlay_public_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid(as_uuid=True),
-        unique=True,
-        index=True,
-        nullable=False,
-        default=uuid.uuid4,
-    )
     max_players: Mapped[int] = mapped_column(
         SmallInteger,
         nullable=False,
@@ -223,39 +283,6 @@ class GameLobby(Base):
         index=True,
         nullable=True,
     )
-    selected_overlay_design: Mapped[OverlayDesign] = mapped_column(
-        Enum(
-            OverlayDesign,
-            native_enum=False,
-            values_callable=lambda obj: [e.value for e in obj],
-        ),
-        nullable=False,
-        server_default=OverlayDesign.CLASSIC.value,
-    )
-    # Активный экран overlay для OBS (переключается кнопками в панели управления).
-    active_overlay_screen: Mapped[str] = mapped_column(
-        String(64),
-        nullable=False,
-        server_default=text("'lobby'"),
-    )
-    # Показывать командные и дополнительные баллы на экране победы.
-    show_victory_scores: Mapped[bool] = mapped_column(
-        Boolean,
-        nullable=False,
-        server_default=text("false"),
-    )
-    # Массив из 5 отметок проверки шерифа (формат задаёт клиент/overlay).
-    sheriff_check: Mapped[list[str]] = mapped_column(
-        JSONB,
-        nullable=False,
-        server_default=text("'[]'::jsonb"),
-    )
-    # Массив из 3 отметок best move (формат задаёт клиент/overlay).
-    best_move: Mapped[list[str]] = mapped_column(
-        JSONB,
-        nullable=False,
-        server_default=text("'[]'::jsonb"),
-    )
     imported_source_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     imported_current_key: Mapped[str | None] = mapped_column(String(120), nullable=True)
     imported_variants: Mapped[list[dict]] = mapped_column(
@@ -272,6 +299,171 @@ class GameLobby(Base):
         cascade="all, delete-orphan",
     )
     host: Mapped["UserProfile | None"] = relationship(back_populates="hosted_lobbies")
+    overlay_state: Mapped["LobbyOverlayState"] = relationship(
+        back_populates="lobby",
+        cascade="all, delete-orphan",
+        lazy="joined",
+        single_parent=True,
+        uselist=False,
+    )
+
+    def __init__(self, **kwargs):
+        state_values = {
+            "overlay_public_id": kwargs.pop("overlay_public_id", uuid.uuid4()),
+            "selected_overlay_design": kwargs.pop(
+                "selected_overlay_design", OverlayDesign.CLASSIC
+            ),
+            "active_overlay_screen": kwargs.pop("active_overlay_screen", "lobby"),
+            "show_victory_scores": kwargs.pop("show_victory_scores", False),
+            "sheriff_check": kwargs.pop("sheriff_check", []),
+            "best_move": kwargs.pop("best_move", []),
+        }
+        super().__init__(**kwargs)
+        self.overlay_state = LobbyOverlayState(**state_values)
+
+    @hybrid_property
+    def overlay_public_id(self) -> uuid.UUID:
+        return self.overlay_state.overlay_public_id
+
+    @overlay_public_id.inplace.expression
+    @classmethod
+    def _overlay_public_id_expression(cls):
+        return (
+            select(LobbyOverlayState.overlay_public_id)
+            .where(LobbyOverlayState.lobby_id == cls.id)
+            .scalar_subquery()
+        )
+
+    @hybrid_property
+    def selected_overlay_design(self) -> OverlayDesign:
+        return self.overlay_state.selected_overlay_design
+
+    @selected_overlay_design.inplace.setter
+    def _set_selected_overlay_design(self, value: OverlayDesign) -> None:
+        self.overlay_state.selected_overlay_design = value
+
+    @hybrid_property
+    def active_overlay_screen(self) -> str:
+        return self.overlay_state.active_overlay_screen
+
+    @active_overlay_screen.inplace.setter
+    def _set_active_overlay_screen(self, value: str) -> None:
+        self.overlay_state.active_overlay_screen = value
+
+    @hybrid_property
+    def show_victory_scores(self) -> bool:
+        return self.overlay_state.show_victory_scores
+
+    @show_victory_scores.inplace.setter
+    def _set_show_victory_scores(self, value: bool) -> None:
+        self.overlay_state.show_victory_scores = value
+
+    @hybrid_property
+    def sheriff_check(self) -> list[str]:
+        return self.overlay_state.sheriff_check
+
+    @sheriff_check.inplace.setter
+    def _set_sheriff_check(self, value: list[str]) -> None:
+        self.overlay_state.sheriff_check = value
+
+    @hybrid_property
+    def best_move(self) -> list[str]:
+        return self.overlay_state.best_move
+
+    @best_move.inplace.setter
+    def _set_best_move(self, value: list[str]) -> None:
+        self.overlay_state.best_move = value
+
+
+class BroadcastUserSettings(Base):
+    __tablename__ = "broadcast_user_settings"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("user_profile.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    active_overlay_lobby_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("game_lobby.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    user: Mapped["UserProfile"] = relationship(back_populates="broadcast_settings")
+
+
+class LobbyOverlayState(Base):
+    __tablename__ = "lobby_overlay_state"
+
+    lobby_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("game_lobby.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    overlay_public_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        unique=True,
+        index=True,
+        nullable=False,
+        default=uuid.uuid4,
+    )
+    selected_overlay_design: Mapped[OverlayDesign] = mapped_column(
+        Enum(
+            OverlayDesign,
+            native_enum=False,
+            values_callable=lambda obj: [e.value for e in obj],
+        ),
+        nullable=False,
+        server_default=OverlayDesign.CLASSIC.value,
+    )
+    active_overlay_screen: Mapped[str] = mapped_column(
+        String(64), nullable=False, server_default=text("'lobby'")
+    )
+    show_victory_scores: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    sheriff_check: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    best_move: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+
+    lobby: Mapped["GameLobby"] = relationship(back_populates="overlay_state")
+
+
+class CommerceUserSubscription(Base):
+    __tablename__ = "commerce_user_subscription"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("user_profile.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    subscription: Mapped[Subscription] = mapped_column(
+        Enum(
+            Subscription,
+            native_enum=False,
+            values_callable=lambda obj: [e.value for e in obj],
+        ),
+        nullable=False,
+        server_default=Subscription.FREE.value,
+    )
+    subscription_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+
+    user: Mapped["UserProfile"] = relationship(back_populates="commerce_subscription")
+
+
+UserSubscription = CommerceUserSubscription
 
 
 class LobbyMembership(Base):
