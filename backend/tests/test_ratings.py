@@ -375,9 +375,13 @@ def test_sync_rating_from_lobby_copies_best_move(monkeypatch: pytest.MonkeyPatch
 
     loaded_game = SimpleNamespace(
         id=uuid.uuid4(),
+        rating_id=rating_id,
         title="Лобби",
         played_at=date(2026, 7, 29),
         winner_side=RatingWinnerSide.RED,
+        source="lobby_sync",
+        lobby_id=lobby_id,
+        created_at="2026-07-29T00:00:00Z",
         results=[
             SimpleNamespace(
                 player_card_id=player_id,
@@ -385,7 +389,11 @@ def test_sync_rating_from_lobby_copies_best_move(monkeypatch: pytest.MonkeyPatch
                 bonus_points=1.0,
                 total_points=2.0,
                 best_move=["1", "", "3"],
-                player_card=SimpleNamespace(nickname="Dendi"),
+                player_card=SimpleNamespace(
+                    nickname="Dendi",
+                    first_name="A",
+                    last_name="B",
+                ),
             )
         ],
     )
