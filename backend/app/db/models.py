@@ -1,8 +1,9 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from sqlalchemy import (
     Boolean,
+    Date,
     DateTime,
     Enum,
     ForeignKey,
@@ -24,6 +25,8 @@ from app.db.base import (
     GameRole,
     GameStatus,
     OverlayDesign,
+    RatingGameSource,
+    RatingWinnerSide,
     Role,
     Subscription,
 )
@@ -111,6 +114,10 @@ class UserProfile(Base):
         lazy="joined",
         single_parent=True,
         uselist=False,
+    )
+    ratings: Mapped[list["Rating"]] = relationship(
+        back_populates="owner",
+        cascade="all, delete-orphan",
     )
 
     def __init__(self, **kwargs):
@@ -248,6 +255,12 @@ class PlayerCard(Base):
 
     owner: Mapped["UserProfile"] = relationship(back_populates="player_cards")
     lobby_memberships: Mapped[list["LobbyMembership"]] = relationship(
+        back_populates="player_card",
+    )
+    rating_participations: Mapped[list["RatingParticipant"]] = relationship(
+        back_populates="player_card",
+    )
+    rating_game_results: Mapped[list["RatingGameResult"]] = relationship(
         back_populates="player_card",
     )
 
@@ -659,4 +672,181 @@ class UserOverlayDesignAccess(Base):
     )
 
     user: Mapped["UserProfile"] = relationship(back_populates="overlay_design_access")
+
+
+class Rating(Base):
+    """Рейтинговое мероприятие: дата, название и список участников из карточек владельца."""
+
+    __tablename__ = "rating"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("user_profile.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    event_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    owner: Mapped["UserProfile"] = relationship(back_populates="ratings")
+    participants: Mapped[list["RatingParticipant"]] = relationship(
+        back_populates="rating",
+        cascade="all, delete-orphan",
+        order_by="RatingParticipant.sort_order",
+    )
+    games: Mapped[list["RatingGame"]] = relationship(
+        back_populates="rating",
+        cascade="all, delete-orphan",
+        order_by="RatingGame.played_at",
+    )
+
+
+class RatingParticipant(Base):
+    __tablename__ = "rating_participant"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    rating_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("rating.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    player_card_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("player_card.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    sort_order: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
+
+    rating: Mapped["Rating"] = relationship(back_populates="participants")
+    player_card: Mapped["PlayerCard"] = relationship(back_populates="rating_participations")
+
+
+class RatingGame(Base):
+    __tablename__ = "rating_game"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    rating_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("rating.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    title: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        server_default=text("''"),
+    )
+    played_at: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    winner_side: Mapped[RatingWinnerSide] = mapped_column(
+        Enum(
+            RatingWinnerSide,
+            native_enum=False,
+            values_callable=lambda obj: [e.value for e in obj],
+        ),
+        nullable=False,
+    )
+    source: Mapped[RatingGameSource] = mapped_column(
+        Enum(
+            RatingGameSource,
+            native_enum=False,
+            values_callable=lambda obj: [e.value for e in obj],
+        ),
+        nullable=False,
+        server_default=RatingGameSource.MANUAL.value,
+    )
+    lobby_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("game_lobby.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    rating: Mapped["Rating"] = relationship(back_populates="games")
+    results: Mapped[list["RatingGameResult"]] = relationship(
+        back_populates="game",
+        cascade="all, delete-orphan",
+        order_by="RatingGameResult.sort_order",
+    )
+
+
+class RatingGameResult(Base):
+    __tablename__ = "rating_game_result"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    rating_game_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("rating_game.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    player_card_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("player_card.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    role: Mapped[GameRole] = mapped_column(
+        Enum(GameRole, native_enum=False, values_callable=lambda obj: [e.value for e in obj]),
+        nullable=False,
+    )
+    bonus_points: Mapped[float] = mapped_column(
+        Numeric(6, 1),
+        nullable=False,
+        server_default="0",
+    )
+    total_points: Mapped[float] = mapped_column(
+        Numeric(6, 1),
+        nullable=False,
+        server_default="0",
+    )
+    best_move: Mapped[list[str]] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'[]'::jsonb"),
+    )
+    sort_order: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
+
+    game: Mapped["RatingGame"] = relationship(back_populates="results")
+    player_card: Mapped["PlayerCard"] = relationship(back_populates="rating_game_results")
 

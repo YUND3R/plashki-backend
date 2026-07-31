@@ -37,7 +37,7 @@ def test_fresh_upgrade_is_idempotent_and_health_uses_postgres(
                 await connection.execute(text("SELECT version_num FROM alembic_version"))
             ).scalar_one()
         assert set(Base.metadata.tables).issubset(tables)
-        assert revision == "20260724_02"
+        assert revision == "20260730_06"
 
     async def override_session():
         async with session_factory() as session:
@@ -180,7 +180,7 @@ def test_legacy_database_without_version_is_stamped_and_backfilled(
                     for item in inspect(sync_connection).get_columns("user_profile")
                 }
             )
-        assert revision == "20260724_02"
+        assert revision == "20260730_06"
         assert subscription == "premium"
         assert overlay == (public_id, "roles")
         assert active == lobby_id
@@ -220,6 +220,6 @@ def test_normalized_database_without_version_is_safely_restamped(
             ).scalar_one()
 
     try:
-        assert asyncio.run(revision()) == "20260724_02"
+        assert asyncio.run(revision()) == "20260730_06"
     finally:
         asyncio.run(engine.dispose())

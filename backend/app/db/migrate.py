@@ -118,6 +118,8 @@ async def _inspect_schema(
             "broadcast_user_settings",
             "lobby_overlay_state",
             "commerce_user_subscription",
+            "rating",
+            "rating_participant",
         }
         if not (app_tables & existing_tables):
             return versioned, "empty", []

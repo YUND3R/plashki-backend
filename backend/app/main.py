@@ -20,6 +20,7 @@ from app.routers import feedback as feedback_routes
 from app.routers import nanobanana as nanobanana_routes
 from app.routers import player_card as player_card_routes
 from app.routers import shop as shop_routes
+from app.ratings.api.router import router as ratings_router
 from app.sessions.api.router import router as sessions_router
 from app.shared.api.errors import application_error_handler
 from app.shared.api.router_system import router as system_router
@@ -112,6 +113,7 @@ def create_app() -> FastAPI:
         admin_router,
         sessions_router,
         broadcast_router,
+        ratings_router,
     ):
         app.include_router(router)
 

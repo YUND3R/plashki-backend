@@ -52,3 +52,13 @@ class GameStatus(Enum):
     PLAYER_SPEECH = "player-speech"
     PROTOCOL = "protocol"
     OPINION = "opinion"
+
+
+class RatingWinnerSide(Enum):
+    RED = "red"
+    BLACK = "black"
+
+
+class RatingGameSource(Enum):
+    MANUAL = "manual"
+    LOBBY_SYNC = "lobby_sync"

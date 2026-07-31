@@ -64,6 +64,8 @@ def test_openapi_has_critical_endpoints() -> None:
         ("POST", "/images/nanobanana/process"),
         ("POST", "/lobbies"),
         ("GET", "/lobbies/{lobby_id}/overlay-state"),
+        ("GET", "/ratings/{rating_id}/games"),
+        ("GET", "/ratings/{rating_id}/games/{game_id}"),
     }
     missing: list[str] = []
     for method, path in required_ops:
