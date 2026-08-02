@@ -1,5 +1,6 @@
 import logging
 import smtplib
+from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
@@ -28,14 +29,35 @@ class SmtpEmailSender:
         self.use_tls = use_tls
         self.use_ssl = use_ssl
 
-    def send(self, *, to_email: str, subject: str, body: str, html_body: str | None = None) -> bool:
+    def send(
+        self,
+        *,
+        to_email: str,
+        subject: str,
+        body: str,
+        html_body: str | None = None,
+        inline_images: dict[str, bytes] | None = None,
+    ) -> bool:
         if not self.host or not self.from_email:
             logger.warning("Письмо не отправлено: SMTP_HOST и/или SMTP_FROM_EMAIL не заданы.")
             return False
+        attachments = inline_images or {}
         if html_body:
-            message = MIMEMultipart("alternative")
-            message.attach(MIMEText(body, "plain", "utf-8"))
-            message.attach(MIMEText(html_body, "html", "utf-8"))
+            if attachments:
+                message: MIMEMultipart | MIMEText = MIMEMultipart("related")
+                alternative = MIMEMultipart("alternative")
+                alternative.attach(MIMEText(body, "plain", "utf-8"))
+                alternative.attach(MIMEText(html_body, "html", "utf-8"))
+                message.attach(alternative)
+                for content_id, image_bytes in attachments.items():
+                    image = MIMEImage(image_bytes, _subtype="png")
+                    image.add_header("Content-ID", f"<{content_id}>")
+                    image.add_header("Content-Disposition", "inline", filename=f"{content_id}.png")
+                    message.attach(image)
+            else:
+                message = MIMEMultipart("alternative")
+                message.attach(MIMEText(body, "plain", "utf-8"))
+                message.attach(MIMEText(html_body, "html", "utf-8"))
         else:
             message = MIMEText(body, "plain", "utf-8")
         message["Subject"] = subject

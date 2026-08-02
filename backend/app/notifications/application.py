@@ -29,12 +29,14 @@ class NotificationFacade:
         subject: str,
         body: str,
         html_body: str | None = None,
+        inline_images: dict[str, bytes] | None = None,
     ) -> bool:
         return self._email_sender.send(
             to_email=to_email,
             subject=subject,
             body=body,
             html_body=html_body,
+            inline_images=inline_images,
         )
 
     def send_telegram(self, text: str) -> bool:

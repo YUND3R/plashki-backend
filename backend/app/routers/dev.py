@@ -2,13 +2,20 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import HTMLResponse
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.password import hash_password
 from app.db.base import Role, Subscription
 from app.db.models import UserProfile
 from app.db.session import get_session
+from app.notifications.email_templates import (
+    build_password_reset_email_html,
+    build_registration_verification_email_html,
+    resolve_email_assets_base_url,
+)
 from app.services.user_uniqueness import registration_conflict
 from app.schemas.dev_user import (
     TestAdminCreateBody,
@@ -105,6 +112,38 @@ async def dev_create_test_admin(
         )
     await session.refresh(user)
     return TestUserOut.model_validate(user)
+
+
+@router.get(
+    "/email-preview/password-reset",
+    response_class=HTMLResponse,
+    summary="[ТЕСТ] Превью HTML-письма сброса пароля",
+)
+async def dev_preview_password_reset_email() -> HTMLResponse:
+    assets_base = resolve_email_assets_base_url()
+    html = build_password_reset_email_html(
+        username="demo",
+        action_url=f"{settings.frontend_reset_password_url or 'https://plash-ki.ru/reset-password'}#rid=1&sig=preview",
+        ttl_minutes=settings.reset_token_ttl_minutes,
+        assets_base_url=assets_base,
+    )
+    return HTMLResponse(content=html)
+
+
+@router.get(
+    "/email-preview/registration",
+    response_class=HTMLResponse,
+    summary="[ТЕСТ] Превью HTML-письма регистрации",
+)
+async def dev_preview_registration_email() -> HTMLResponse:
+    assets_base = resolve_email_assets_base_url()
+    html = build_registration_verification_email_html(
+        username="demo",
+        action_url=f"{settings.frontend_verify_email_url or 'https://plash-ki.ru/verify-email'}#vid=1&sig=preview",
+        ttl_minutes=settings.email_verification_token_ttl_minutes,
+        assets_base_url=assets_base,
+    )
+    return HTMLResponse(content=html)
 
 
 @router.get(

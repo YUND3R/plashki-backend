@@ -9,6 +9,7 @@ class EmailSender(Protocol):
         subject: str,
         body: str,
         html_body: str | None = None,
+        inline_images: dict[str, bytes] | None = None,
     ) -> bool: ...
 
 

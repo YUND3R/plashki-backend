@@ -9,6 +9,7 @@ def test_registration_email_contains_brand_and_escapes_username() -> None:
         username="<script>alert(1)</script>",
         action_url="https://plash-ki.ru/verify#vid=1&sig=abc",
         ttl_minutes=30,
+        assets_base_url="https://api.plash-ki.ru/email-assets",
     )
     assert "Plashki" in html
     assert "Подтверждение регистрации" in html
@@ -18,6 +19,8 @@ def test_registration_email_contains_brand_and_escapes_username() -> None:
     assert "Спасибо, что присоединился к нам!" in html
     assert "<script>" not in html
     assert "word-break:break-all" not in html
+    assert "https://api.plash-ki.ru/email-assets/logo.png" in html
+    assert "data:image/" not in html
 
 
 def test_password_reset_email_contains_warning_and_ttl() -> None:
@@ -25,6 +28,7 @@ def test_password_reset_email_contains_warning_and_ttl() -> None:
         username="yund3r",
         action_url="https://plash-ki.ru/reset#rid=1&sig=abc",
         ttl_minutes=10,
+        assets_base_url="https://api.plash-ki.ru/email-assets",
     )
     assert "Привет, yund3r!" in html
     assert "Сброс пароля" in html
@@ -33,4 +37,15 @@ def test_password_reset_email_contains_warning_and_ttl() -> None:
     assert "Если ты не запрашивал смену пароля" in html
     assert "Больше не теряй пароль от аккаунта" in html
     assert "display:block;box-sizing:border-box;width:100%" in html
-    assert "data:image/png;base64," in html
+    assert "https://api.plash-ki.ru/email-assets/logo.png" in html
+    assert "data:image/" not in html
+
+
+def test_logo_uses_cid_without_public_assets_base() -> None:
+    html = build_password_reset_email_html(
+        username="local",
+        action_url="https://example.com/reset",
+        ttl_minutes=5,
+        assets_base_url="",
+    )
+    assert "cid:plashki-logo" in html

@@ -28,6 +28,7 @@ from app.notifications.email_templates import (
     build_password_reset_email_plain,
     build_registration_verification_email_html,
     build_registration_verification_email_plain,
+    email_inline_images,
     resolve_email_assets_base_url,
 )
 from app.notifications.providers import get_notification_facade
@@ -271,6 +272,7 @@ async def register(
             subject="Подтверждение email — Plashki",
             body=email_body,
             html_body=email_html,
+            inline_images=email_inline_images(assets_base_url=assets_base),
         )
         if not sent:
             alert_service.send_warning(
@@ -467,6 +469,7 @@ async def resend_verification(
         subject="Подтверждение email — Plashki",
         body=email_body,
         html_body=email_html,
+        inline_images=email_inline_images(assets_base_url=assets_base),
     )
     if not sent:
         alert_service.send_warning(
@@ -517,6 +520,7 @@ async def forgot_password(
         subject="Сброс пароля Plashki",
         body=email_body,
         html_body=email_html,
+        inline_images=email_inline_images(assets_base_url=assets_base),
     )
     if not sent:
         alert_service.send_warning(
