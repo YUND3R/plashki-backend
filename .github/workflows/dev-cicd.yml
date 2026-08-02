@@ -99,6 +99,8 @@ jobs:
           grep -q '^POSTGRES_DB=' test.env
           grep -q '^ENVIRONMENT=' test.env
           ! grep -q 'ТОТ_ЖЕ_ПАРОЛЬ' test.env || (echo "TEST_ENV_FILE: replace placeholder passwords" && exit 1)
+          ! grep -q 'CHANGE_ME' test.env || (echo "TEST_ENV_FILE: replace CHANGE_ME placeholders" && exit 1)
+          test "$(grep '^POSTGRES_PASSWORD=' test.env | cut -d= -f2-)" = "$(grep '^DATABASE_URL=' test.env | sed -n 's#.*://[^:]*:\([^@]*\)@.*#\1#p')"
 
       - name: Upload backend archive
         uses: appleboy/scp-action@v0.1.7
