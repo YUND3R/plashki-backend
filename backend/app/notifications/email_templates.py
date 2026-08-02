@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import base64
 import html
 from pathlib import Path
-from urllib.parse import quote
 
 from app.core.config import settings
 
@@ -13,16 +13,15 @@ _TEXT_MUTED = "#6B7280"
 _BORDER = "#E5E7EB"
 _FONT = "Arial, Helvetica, sans-serif"
 
-_LOGO_SVG = (Path(__file__).resolve().parent / "assets" / "logo.svg").read_text(
-    encoding="utf-8"
-)
-
+_ASSETS_DIR = Path(__file__).resolve().parent / "assets"
+_LOGO_PNG_BYTES = (_ASSETS_DIR / "logo.png").read_bytes()
+_LOGO_DATA_URI = "data:image/png;base64," + base64.b64encode(_LOGO_PNG_BYTES).decode("ascii")
 
 def _svg_data_uri(svg: str) -> str:
+    from urllib.parse import quote
+
     return f"data:image/svg+xml,{quote(svg.strip())}"
 
-
-_LOGO_DATA_URI = _svg_data_uri(_LOGO_SVG)
 
 _ICON_SHIELD = _svg_data_uri(
     """<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20" fill="none">
@@ -59,8 +58,7 @@ def resolve_email_assets_base_url(*, request_base_url: str = "") -> str:
 
 
 def _logo_src(*, assets_base_url: str) -> str:
-    if assets_base_url:
-        return f"{assets_base_url.rstrip('/')}/logo.svg"
+    _ = assets_base_url
     return _LOGO_DATA_URI
 
 
@@ -134,8 +132,8 @@ def _build_transactional_email_html(
         "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">"
         "<tr>"
         "<td align=\"left\" valign=\"middle\">"
-        f"<img src=\"{logo_src}\" width=\"130\" height=\"29\" alt=\"Plashki\" "
-        "style=\"display:block;border:0;outline:none;max-width:130px;height:auto;\"/>"
+        f"<img src=\"{logo_src}\" width=\"130\" alt=\"Plashki\" "
+        "style=\"display:block;border:0;outline:none;max-width:130px;width:130px;height:auto;\"/>"
         "</td>"
         f"<td align=\"right\" valign=\"middle\" style=\"font-size:15px;line-height:1.4;color:{_TEXT_PRIMARY};\">"
         f"{esc_greeting}</td>"
@@ -147,24 +145,24 @@ def _build_transactional_email_html(
         f"{esc_title}</h1>"
         f"<p style=\"margin:0 0 24px;font-size:15px;line-height:1.65;color:{_TEXT_MUTED};\">"
         f"{esc_intro}</p>"
-        "<table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin:0 0 24px;\">"
+        "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" "
+        "style=\"margin:0 0 24px;\">"
         "<tr>"
-        "<td style=\"padding:0 8px 0 0;\">"
+        "<td style=\"padding:0 8px 0 0;width:100%;\">"
         f"<a href=\"{esc_action_url}\" "
-        f"style=\"display:inline-block;background:{_BRAND_BLUE};color:#ffffff;text-decoration:none;"
-        "padding:14px 28px;border-radius:10px;font-size:15px;font-weight:600;line-height:1;\">"
+        f"style=\"display:block;box-sizing:border-box;width:100%;background:{_BRAND_BLUE};"
+        "color:#ffffff;text-decoration:none;padding:14px 28px;border-radius:10px;"
+        "font-size:15px;font-weight:600;line-height:1;text-align:center;\">"
         f"{esc_action_text}</a></td>"
-        "<td>"
+        "<td style=\"width:46px;vertical-align:top;\">"
         f"<a href=\"{esc_action_url}\" "
-        f"style=\"display:inline-block;background:{_BRAND_BLUE_LIGHT};text-decoration:none;"
+        f"style=\"display:block;background:{_BRAND_BLUE_LIGHT};text-decoration:none;"
         "width:46px;height:46px;border-radius:10px;line-height:46px;text-align:center;\">"
         f"<img src=\"{_ICON_COPY}\" width=\"18\" height=\"18\" alt=\"Скопировать ссылку\" "
         "style=\"display:inline-block;vertical-align:middle;border:0;outline:none;\"/>"
         "</a></td>"
         "</tr></table>"
         f"{info_rows}"
-        f"<p style=\"margin:16px 0 0;font-size:13px;line-height:1.5;color:{_TEXT_MUTED};word-break:break-all;\">"
-        f"{esc_action_url}</p>"
         "</td></tr>"
         f"<tr><td style=\"border-top:1px solid {_BORDER};font-size:0;line-height:0;\">&nbsp;</td></tr>"
         f"<tr><td align=\"center\" style=\"padding:24px;font-size:15px;line-height:1.5;color:{_TEXT_MUTED};\">"
@@ -211,7 +209,7 @@ def build_password_reset_email_html(
         title="Сброс пароля",
         intro=(
             "Мы получили твой запрос на восстановление пароля от аккаунта в Plashki. "
-            "Нажми на кнопку ниже или перейди по ссылке, чтобы сбросить пароль."
+            "Нажми на кнопку ниже, чтобы сбросить пароль."
         ),
         action_text="Сбросить пароль",
         action_url=action_url,

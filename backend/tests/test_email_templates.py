@@ -17,7 +17,7 @@ def test_registration_email_contains_brand_and_escapes_username() -> None:
     assert "30 минут" in html
     assert "Спасибо, что присоединился к нам!" in html
     assert "<script>" not in html
-    assert "https://plash-ki.ru/verify#vid=1&amp;sig=abc" in html
+    assert "word-break:break-all" not in html
 
 
 def test_password_reset_email_contains_warning_and_ttl() -> None:
@@ -32,3 +32,5 @@ def test_password_reset_email_contains_warning_and_ttl() -> None:
     assert "10 минут" in html
     assert "Если ты не запрашивал смену пароля" in html
     assert "Больше не теряй пароль от аккаунта" in html
+    assert "display:block;box-sizing:border-box;width:100%" in html
+    assert "data:image/png;base64," in html
