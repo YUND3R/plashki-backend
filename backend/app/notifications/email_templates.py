@@ -86,7 +86,7 @@ def _info_row(*, icon: str, text: str, assets_base_url: str) -> str:
         "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" "
         "style=\"margin:0 0 10px;\">"
         "<tr>"
-        "<td width=\"23\" valign=\"top\" style=\"padding:0 8px 0 0;\">"
+        "<td width=\"23\" valign=\"top\" style=\"padding:3px 8px 0 0;\">"
         f"<img src=\"{esc_icon_src}\" width=\"15\" height=\"15\" alt=\"\" "
         "style=\"display:block;border:0;outline:none;\"/>"
         "</td>"
