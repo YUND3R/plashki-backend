@@ -10,11 +10,21 @@ _BRAND_BLUE_LIGHT = "#E8EFFF"
 _TEXT_PRIMARY = "#111827"
 _TEXT_MUTED = "#6B7280"
 _BORDER = "#E5E7EB"
-_FONT = "Arial, Helvetica, sans-serif"
+_FONT = "'Inter', Arial, Helvetica, sans-serif"
+_FONT_LINK = (
+    "<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\"/>"
+    "<link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin=\"\"/>"
+    "<link href=\"https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;display=swap\" "
+    "rel=\"stylesheet\"/>"
+)
 _LOGO_CID = "plashki-logo"
+_ICON_SHIELD_CID = "plashki-icon-shield"
+_ICON_WARNING_CID = "plashki-icon-warning"
 
 _ASSETS_DIR = Path(__file__).resolve().parent / "assets"
 _LOGO_PNG_BYTES = (_ASSETS_DIR / "logo.png").read_bytes()
+_ICON_SHIELD_PNG_BYTES = (_ASSETS_DIR / "icon-shield.png").read_bytes()
+_ICON_WARNING_PNG_BYTES = (_ASSETS_DIR / "icon-warning.png").read_bytes()
 
 
 def resolve_email_assets_base_url(*, request_base_url: str = "") -> str:
@@ -28,14 +38,26 @@ def resolve_email_assets_base_url(*, request_base_url: str = "") -> str:
 
 
 def email_inline_images(*, assets_base_url: str = "") -> dict[str, bytes]:
-    _, attachments = _logo_attachment(assets_base_url=assets_base_url)
-    return attachments
+    images: dict[str, bytes] = {}
+    _, logo_attach = _logo_attachment(assets_base_url=assets_base_url)
+    images.update(logo_attach)
+    if not assets_base_url:
+        images[_ICON_SHIELD_CID] = _ICON_SHIELD_PNG_BYTES
+        images[_ICON_WARNING_CID] = _ICON_WARNING_PNG_BYTES
+    return images
 
 
 def _logo_attachment(*, assets_base_url: str) -> tuple[str, dict[str, bytes]]:
     if assets_base_url:
         return f"{assets_base_url.rstrip('/')}/logo.png", {}
     return f"cid:{_LOGO_CID}", {_LOGO_CID: _LOGO_PNG_BYTES}
+
+
+def _icon_src(*, name: str, assets_base_url: str) -> str:
+    if assets_base_url:
+        return f"{assets_base_url.rstrip('/')}/{name}.png"
+    cid = _ICON_SHIELD_CID if name == "icon-shield" else _ICON_WARNING_CID
+    return f"cid:{cid}"
 
 
 def _minutes_label(minutes: int) -> str:
@@ -57,14 +79,19 @@ def _emoji_badge(emoji: str) -> str:
     )
 
 
-def _info_row(*, text: str) -> str:
+def _info_row(*, icon: str, text: str, assets_base_url: str) -> str:
     esc_text = html.escape(text)
+    esc_icon_src = html.escape(_icon_src(name=icon, assets_base_url=assets_base_url), quote=True)
     return (
         "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" "
         "style=\"margin:0 0 10px;\">"
         "<tr>"
-        f"<td valign=\"top\" style=\"border-left:3px solid {_BRAND_BLUE};padding:0 0 0 12px;"
-        f"font-size:14px;line-height:1.5;color:{_TEXT_MUTED};\">"
+        "<td width=\"28\" valign=\"top\" style=\"padding:0 8px 0 0;\">"
+        f"<img src=\"{esc_icon_src}\" width=\"20\" height=\"20\" alt=\"\" "
+        "style=\"display:block;border:0;outline:none;\"/>"
+        "</td>"
+        f"<td valign=\"top\" style=\"font-size:14px;line-height:1.5;color:{_TEXT_MUTED};"
+        f"font-family:{_FONT};\">"
         f"{esc_text}</td>"
         "</tr></table>"
     )
@@ -94,10 +121,16 @@ def _build_transactional_email_html(
     esc_logo_src = html.escape(logo_src, quote=True)
 
     info_rows = _info_row(
+        icon="icon-shield",
         text=f"Время работоспособности ссылки - {_minutes_label(ttl_minutes)}.",
+        assets_base_url=assets_base_url,
     )
     if warning_text:
-        info_rows += _info_row(text=warning_text)
+        info_rows += _info_row(
+            icon="icon-warning",
+            text=warning_text,
+            assets_base_url=assets_base_url,
+        )
 
     return (
         "<!DOCTYPE html>"
@@ -106,6 +139,7 @@ def _build_transactional_email_html(
         "<meta charset=\"utf-8\"/>"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/>"
         f"<title>{esc_title}</title>"
+        f"{_FONT_LINK}"
         "</head>"
         f"<body style=\"margin:0;padding:0;background:#ffffff;font-family:{_FONT};color:{_TEXT_PRIMARY};\">"
         "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">"

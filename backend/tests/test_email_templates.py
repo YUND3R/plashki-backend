@@ -20,6 +20,8 @@ def test_registration_email_contains_brand_and_escapes_username() -> None:
     assert "<script>" not in html
     assert "word-break:break-all" not in html
     assert "https://api.plash-ki.ru/email-assets/logo.png" in html
+    assert "https://api.plash-ki.ru/email-assets/icon-shield.png" in html
+    assert "fonts.googleapis.com/css2?family=Inter" in html
     assert "data:image/" not in html
 
 
@@ -41,6 +43,9 @@ def test_password_reset_email_contains_warning_and_ttl() -> None:
     assert "Время работоспособности ссылки - 10 минут" in html
     assert "&#8599;" not in html
     assert "https://api.plash-ki.ru/email-assets/logo.png" in html
+    assert "https://api.plash-ki.ru/email-assets/icon-shield.png" in html
+    assert "https://api.plash-ki.ru/email-assets/icon-warning.png" in html
+    assert "fonts.googleapis.com/css2?family=Inter" in html
     assert "data:image/" not in html
 
 
@@ -52,3 +57,5 @@ def test_logo_uses_cid_without_public_assets_base() -> None:
         assets_base_url="",
     )
     assert "cid:plashki-logo" in html
+    assert "cid:plashki-icon-shield" in html
+    assert "cid:plashki-icon-warning" in html
