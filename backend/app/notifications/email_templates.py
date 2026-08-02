@@ -74,7 +74,7 @@ def _emoji_badge(emoji: str) -> str:
     return (
         f"<span style=\"display:inline-block;background:{_BRAND_BLUE_LIGHT};"
         "width:30px;height:30px;line-height:30px;text-align:center;"
-        "border-radius:4px;font-size:17px;vertical-align:middle;\">"
+        "border-radius:11px;font-size:17px;vertical-align:middle;\">"
         f"{emoji}</span>"
     )
 
