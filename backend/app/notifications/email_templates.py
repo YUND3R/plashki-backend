@@ -18,12 +18,12 @@ _FONT_LINK = (
     "rel=\"stylesheet\"/>"
 )
 _LOGO_CID = "plashki-logo"
-_ICON_SHIELD_CID = "plashki-icon-shield"
+_ICON_GUARD_CID = "plashki-icon-guard"
 _ICON_WARNING_CID = "plashki-icon-warning"
 
 _ASSETS_DIR = Path(__file__).resolve().parent / "assets"
 _LOGO_PNG_BYTES = (_ASSETS_DIR / "logo.png").read_bytes()
-_ICON_SHIELD_PNG_BYTES = (_ASSETS_DIR / "icon-shield.png").read_bytes()
+_ICON_GUARD_PNG_BYTES = (_ASSETS_DIR / "icon-guard.png").read_bytes()
 _ICON_WARNING_PNG_BYTES = (_ASSETS_DIR / "icon-warning.png").read_bytes()
 
 
@@ -42,7 +42,7 @@ def email_inline_images(*, assets_base_url: str = "") -> dict[str, bytes]:
     _, logo_attach = _logo_attachment(assets_base_url=assets_base_url)
     images.update(logo_attach)
     if not assets_base_url:
-        images[_ICON_SHIELD_CID] = _ICON_SHIELD_PNG_BYTES
+        images[_ICON_GUARD_CID] = _ICON_GUARD_PNG_BYTES
         images[_ICON_WARNING_CID] = _ICON_WARNING_PNG_BYTES
     return images
 
@@ -56,7 +56,7 @@ def _logo_attachment(*, assets_base_url: str) -> tuple[str, dict[str, bytes]]:
 def _icon_src(*, name: str, assets_base_url: str) -> str:
     if assets_base_url:
         return f"{assets_base_url.rstrip('/')}/{name}.png"
-    cid = _ICON_SHIELD_CID if name == "icon-shield" else _ICON_WARNING_CID
+    cid = _ICON_GUARD_CID if name == "icon-guard" else _ICON_WARNING_CID
     return f"cid:{cid}"
 
 
@@ -121,7 +121,7 @@ def _build_transactional_email_html(
     esc_logo_src = html.escape(logo_src, quote=True)
 
     info_rows = _info_row(
-        icon="icon-shield",
+        icon="icon-guard",
         text=f"Время работоспособности ссылки - {_minutes_label(ttl_minutes)}.",
         assets_base_url=assets_base_url,
     )
