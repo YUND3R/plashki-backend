@@ -37,6 +37,9 @@ def test_password_reset_email_contains_warning_and_ttl() -> None:
     assert "Если ты не запрашивал смену пароля" in html
     assert "Больше не теряй пароль от аккаунта" in html
     assert "display:block;box-sizing:border-box;width:100%" in html
+    assert "padding:19px 28px" in html
+    assert "Время работоспособности ссылки - 10 минут" in html
+    assert "&#8599;" not in html
     assert "https://api.plash-ki.ru/email-assets/logo.png" in html
     assert "data:image/" not in html
 

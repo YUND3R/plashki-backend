@@ -48,6 +48,15 @@ def _minutes_label(minutes: int) -> str:
     return f"{minutes} минут"
 
 
+def _emoji_badge(emoji: str) -> str:
+    return (
+        f"<span style=\"display:inline-block;background:{_BRAND_BLUE_LIGHT};"
+        "width:30px;height:30px;line-height:30px;text-align:center;"
+        "border-radius:4px;font-size:17px;vertical-align:middle;\">"
+        f"{emoji}</span>"
+    )
+
+
 def _info_row(*, text: str) -> str:
     esc_text = html.escape(text)
     return (
@@ -63,17 +72,19 @@ def _info_row(*, text: str) -> str:
 
 def _build_transactional_email_html(
     *,
-    greeting: str,
+    greeting_text: str,
+    greeting_emoji: str,
     title: str,
     intro: str,
     action_text: str,
     action_url: str,
     footer_text: str,
+    footer_emoji: str,
     ttl_minutes: int,
     assets_base_url: str = "",
     warning_text: str | None = None,
 ) -> str:
-    esc_greeting = html.escape(greeting)
+    esc_greeting_text = html.escape(greeting_text)
     esc_title = html.escape(title)
     esc_intro = html.escape(intro)
     esc_action_text = html.escape(action_text)
@@ -83,7 +94,7 @@ def _build_transactional_email_html(
     esc_logo_src = html.escape(logo_src, quote=True)
 
     info_rows = _info_row(
-        text=f"Время работоспособности ссылки — {_minutes_label(ttl_minutes)}.",
+        text=f"Время работоспособности ссылки - {_minutes_label(ttl_minutes)}.",
     )
     if warning_text:
         info_rows += _info_row(text=warning_text)
@@ -109,7 +120,7 @@ def _build_transactional_email_html(
         "style=\"display:block;border:0;outline:none;max-width:130px;width:130px;height:auto;\"/>"
         "</td>"
         f"<td align=\"right\" valign=\"middle\" style=\"font-size:15px;line-height:1.4;color:{_TEXT_PRIMARY};\">"
-        f"{esc_greeting}</td>"
+        f"{esc_greeting_text} {_emoji_badge(greeting_emoji)}</td>"
         "</tr></table>"
         "</td></tr>"
         f"<tr><td style=\"border-top:1px solid {_BORDER};font-size:0;line-height:0;\">&nbsp;</td></tr>"
@@ -121,23 +132,18 @@ def _build_transactional_email_html(
         "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" "
         "style=\"margin:0 0 24px;\">"
         "<tr>"
-        "<td style=\"padding:0 8px 0 0;width:100%;\">"
+        "<td>"
         f"<a href=\"{esc_action_url}\" "
         f"style=\"display:block;box-sizing:border-box;width:100%;background:{_BRAND_BLUE};"
-        "color:#ffffff;text-decoration:none;padding:14px 28px;border-radius:10px;"
+        "color:#ffffff;text-decoration:none;padding:19px 28px;border-radius:10px;"
         "font-size:15px;font-weight:600;line-height:1;text-align:center;\">"
         f"{esc_action_text}</a></td>"
-        "<td style=\"width:46px;vertical-align:top;\">"
-        f"<a href=\"{esc_action_url}\" title=\"Открыть ссылку\" "
-        f"style=\"display:block;background:{_BRAND_BLUE_LIGHT};text-decoration:none;"
-        f"width:46px;height:46px;border-radius:10px;line-height:46px;text-align:center;"
-        f"font-size:20px;color:{_BRAND_BLUE};\">&#8599;</a></td>"
         "</tr></table>"
         f"{info_rows}"
         "</td></tr>"
         f"<tr><td style=\"border-top:1px solid {_BORDER};font-size:0;line-height:0;\">&nbsp;</td></tr>"
         f"<tr><td align=\"center\" style=\"padding:24px;font-size:15px;line-height:1.5;color:{_TEXT_MUTED};\">"
-        f"{esc_footer}</td></tr>"
+        f"{esc_footer} {_emoji_badge(footer_emoji)}</td></tr>"
         "</table>"
         "</td></tr></table>"
         "</body></html>"
@@ -151,9 +157,10 @@ def build_registration_verification_email_html(
     ttl_minutes: int,
     assets_base_url: str = "",
 ) -> str:
-    greeting = f"Добро пожаловать, {username.strip()}! 😎"
+    greeting = f"Добро пожаловать, {username.strip()}!"
     return _build_transactional_email_html(
-        greeting=greeting,
+        greeting_text=greeting,
+        greeting_emoji="😎",
         title="Подтверждение регистрации",
         intro=(
             "Мы получили твой запрос на регистрацию в Plashki. "
@@ -161,7 +168,8 @@ def build_registration_verification_email_html(
         ),
         action_text="Подтвердить",
         action_url=action_url,
-        footer_text="Спасибо, что присоединился к нам! 💙",
+        footer_text="Спасибо, что присоединился к нам!",
+        footer_emoji="💙",
         ttl_minutes=ttl_minutes,
         assets_base_url=assets_base_url,
     )
@@ -174,9 +182,10 @@ def build_password_reset_email_html(
     ttl_minutes: int,
     assets_base_url: str = "",
 ) -> str:
-    greeting = f"Привет, {username.strip()}! 😎"
+    greeting = f"Привет, {username.strip()}!"
     return _build_transactional_email_html(
-        greeting=greeting,
+        greeting_text=greeting,
+        greeting_emoji="😎",
         title="Сброс пароля",
         intro=(
             "Мы получили твой запрос на восстановление пароля от аккаунта в Plashki. "
@@ -184,7 +193,8 @@ def build_password_reset_email_html(
         ),
         action_text="Сбросить пароль",
         action_url=action_url,
-        footer_text="Больше не теряй пароль от аккаунта 💙",
+        footer_text="Больше не теряй пароль от аккаунта",
+        footer_emoji="💙",
         ttl_minutes=ttl_minutes,
         assets_base_url=assets_base_url,
         warning_text=(
