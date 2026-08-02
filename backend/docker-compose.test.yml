@@ -23,7 +23,10 @@ services:
       retries: 12
 
   migrate:
-    build: .
+    build:
+      context: .
+      args:
+        CACHEBUST: ${CACHEBUST:-0}
     env_file:
       - path: .env
         required: true
@@ -35,7 +38,10 @@ services:
         condition: service_healthy
 
   api:
-    build: .
+    build:
+      context: .
+      args:
+        CACHEBUST: ${CACHEBUST:-0}
     restart: unless-stopped
     env_file:
       - path: .env

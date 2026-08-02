@@ -137,7 +137,12 @@ jobs:
             rm -f backend-deploy.tgz
             mv -f test.env .env
             sed -i 's/\r$//' .env
-            docker compose -f docker-compose.test.yml up -d --build --remove-orphans
+            export CACHEBUST="$(date +%s)"
+            docker compose -f docker-compose.test.yml build migrate api
+            if ! docker compose -f docker-compose.test.yml up -d --remove-orphans; then
+              docker compose -f docker-compose.test.yml logs --tail=120 migrate
+              exit 1
+            fi
             docker compose -f docker-compose.test.yml ps
             set -a && . ./.env && set +a
             for attempt in $(seq 1 30); do
@@ -147,5 +152,5 @@ jobs:
               fi
               sleep 2
             done
-            docker compose -f docker-compose.test.yml logs --tail=100 api
+            docker compose -f docker-compose.test.yml logs --tail=100 migrate api
             exit 1

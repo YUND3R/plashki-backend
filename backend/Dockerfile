@@ -8,6 +8,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+ARG CACHEBUST=0
+RUN echo "build cache bust: ${CACHEBUST}"
+
 COPY app ./app
 COPY alembic.ini .
 COPY migrations ./migrations
