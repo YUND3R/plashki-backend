@@ -4,6 +4,7 @@ from datetime import date, datetime
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.db.base import GameRole, RatingGameSource, RatingWinnerSide
+from app.schemas.public_media import PublicMediaResponseMixin
 
 
 class RatingWrite(BaseModel):
@@ -178,9 +179,6 @@ class RatingGameListResponse(BaseModel):
     rating_id: uuid.UUID
     total: int
     items: list[RatingGameListItem]
-
-
-from app.schemas.public_media import PublicMediaResponseMixin
 
 
 class RatingTableRow(PublicMediaResponseMixin, BaseModel):

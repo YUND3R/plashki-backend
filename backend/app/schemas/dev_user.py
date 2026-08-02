@@ -4,6 +4,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.db.base import Role
+from app.schemas.public_media import PublicMediaResponseMixin
 
 
 class TestUserCreateBody(BaseModel):
@@ -27,9 +28,6 @@ class TestAdminCreateBody(BaseModel):
     username: str = Field(default="dev_admin", min_length=1, max_length=55)
     email: str = Field(default="dev_admin@dev.local", min_length=1, max_length=55)
     password: str = Field(default="admin", min_length=1, max_length=128)
-
-
-from app.schemas.public_media import PublicMediaResponseMixin
 
 
 class TestUserOut(PublicMediaResponseMixin, BaseModel):

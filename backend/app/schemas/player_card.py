@@ -3,6 +3,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.schemas.public_media import PublicMediaResponseMixin
+
 MAX_PLAYER_CARD_PHOTOS = 10
 
 
@@ -44,9 +46,6 @@ class PlayerCardPatch(BaseModel):
             if len(url) > 2048:
                 raise ValueError("URL фото слишком длинный")
         return v
-
-
-from app.schemas.public_media import PublicMediaResponseMixin
 
 
 class PlayerCardPhotoResponse(PublicMediaResponseMixin, BaseModel):

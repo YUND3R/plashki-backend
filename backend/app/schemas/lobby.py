@@ -4,6 +4,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.db.base import GameRole, GameStatus, LOBBY_MAX_PLAYERS, OverlayDesign, Subscription
+from app.schemas.public_media import PublicMediaResponseMixin
 
 
 class LobbiesTotalResponse(BaseModel):
@@ -167,9 +168,6 @@ class LobbyOverlayDesignsResponse(BaseModel):
 
 class OverlayDesignCatalogResponse(BaseModel):
     options: list[LobbyOverlayDesignOption]
-
-
-from app.schemas.public_media import PublicMediaResponseMixin
 
 
 class OverlayPlayerState(PublicMediaResponseMixin, BaseModel):

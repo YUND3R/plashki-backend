@@ -4,6 +4,7 @@ from datetime import datetime
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, computed_field, model_validator
 
 from app.db.base import Role, Subscription
+from app.schemas.public_media import PublicMediaResponseMixin
 
 
 class LoginBody(BaseModel):
@@ -87,9 +88,6 @@ class PatchMeProfileBody(BaseModel):
 
     first_name: str = Field(min_length=1, max_length=100)
     last_name: str = Field(min_length=1, max_length=100)
-
-
-from app.schemas.public_media import PublicMediaResponseMixin
 
 
 class UserMe(PublicMediaResponseMixin, BaseModel):
