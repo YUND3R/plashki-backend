@@ -93,7 +93,7 @@ jobs:
           TEST_ENV_FILE: ${{ secrets.TEST_ENV_FILE }}
         run: |
           set -euo pipefail
-          printf '%s\n' "$TEST_ENV_FILE" > test.env
+          printf '%s\n' "$TEST_ENV_FILE" | tr -d '\r' > test.env
           grep -q '^POSTGRES_USER=' test.env
           grep -q '^POSTGRES_PASSWORD=' test.env
           grep -q '^POSTGRES_DB=' test.env
@@ -136,6 +136,7 @@ jobs:
             tar -xzf backend-deploy.tgz
             rm -f backend-deploy.tgz
             mv -f test.env .env
+            sed -i 's/\r$//' .env
             docker compose -f docker-compose.test.yml up -d --build --remove-orphans
             docker compose -f docker-compose.test.yml ps
             set -a && . ./.env && set +a
