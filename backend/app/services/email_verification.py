@@ -248,7 +248,7 @@ async def create_verification_token_for_email(
     session: AsyncSession,
     *,
     email: str,
-) -> tuple[str | None, tuple[uuid.UUID, str] | None, str | None]:
+) -> tuple[str | None, tuple[uuid.UUID, str] | None, str | None, str | None]:
     normalized = email.strip().lower()
     now = datetime.now(UTC)
     p_res = await session.execute(
@@ -268,20 +268,20 @@ async def create_verification_token_for_email(
             session, pending_id=pending.id
         )
         if status == "ok":
-            return pending.email, pair, None
+            return pending.email, pair, None, pending.username
         if status in {"cooldown", "limit"}:
-            return pending.email, None, status
-        return None, None, None
+            return pending.email, None, status, pending.username
+        return None, None, None, None
 
     u_res = await session.execute(
         select(UserProfile).where(func.lower(UserProfile.email) == normalized)
     )
     user = u_res.scalars().first()
     if user is None or user.email_verified_at is not None:
-        return None, None, None
+        return None, None, None, None
     status, pair = await create_verification_token_for_user(session, user_id=user.id)
     if status == "ok":
-        return user.email, pair, None
+        return user.email, pair, None, user.username
     if status in {"cooldown", "limit"}:
-        return user.email, None, status
-    return None, None, None
+        return user.email, None, status, user.username
+    return None, None, None, None

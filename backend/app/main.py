@@ -120,6 +120,12 @@ def create_app() -> FastAPI:
     upload_dir = _upload_dir()
     upload_dir.mkdir(parents=True, exist_ok=True)
     app.mount("/files", StaticFiles(directory=str(upload_dir)), name="files")
+    email_assets_dir = Path(__file__).resolve().parent / "notifications" / "assets"
+    app.mount(
+        "/email-assets",
+        StaticFiles(directory=str(email_assets_dir)),
+        name="email-assets",
+    )
     if settings.expose_openapi:
         _customize_openapi(app)
     return app

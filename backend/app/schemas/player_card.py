@@ -46,14 +46,17 @@ class PlayerCardPatch(BaseModel):
         return v
 
 
-class PlayerCardPhotoResponse(BaseModel):
+from app.schemas.public_media import PublicMediaResponseMixin
+
+
+class PlayerCardPhotoResponse(PublicMediaResponseMixin, BaseModel):
     """Ответ после загрузки файла в карточку: URL файла и актуальный список photo_urls."""
 
     url: str
     photo_urls: list[str]
 
 
-class PlayerCardPublic(BaseModel):
+class PlayerCardPublic(PublicMediaResponseMixin, BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID

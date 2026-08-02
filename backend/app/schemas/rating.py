@@ -180,7 +180,10 @@ class RatingGameListResponse(BaseModel):
     items: list[RatingGameListItem]
 
 
-class RatingTableRow(BaseModel):
+from app.schemas.public_media import PublicMediaResponseMixin
+
+
+class RatingTableRow(PublicMediaResponseMixin, BaseModel):
     player_card_id: uuid.UUID
     nickname: str
     first_name: str

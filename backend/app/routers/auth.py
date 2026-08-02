@@ -23,6 +23,13 @@ from app.core.security import create_access_token
 from app.db.session import get_session
 from app.deps.auth import get_current_user_id
 from app.db.models import UserProfile
+from app.notifications.email_templates import (
+    build_password_reset_email_html,
+    build_password_reset_email_plain,
+    build_registration_verification_email_html,
+    build_registration_verification_email_plain,
+    resolve_email_assets_base_url,
+)
 from app.notifications.providers import get_notification_facade
 from app.schemas.auth import (
     AuthSessionResponse,
@@ -158,45 +165,6 @@ def _email_verify_browser_response(
     )
 
 
-def _build_action_email_html(
-    *,
-    title: str,
-    intro: str,
-    action_text: str,
-    action_url: str,
-) -> str:
-    esc_title = html.escape(title)
-    esc_intro = html.escape(intro)
-    esc_action_text = html.escape(action_text)
-    esc_action_url = html.escape(action_url)
-    return (
-        "<!DOCTYPE html>"
-        "<html lang=\"ru\">"
-        "<head>"
-        "<meta charset=\"utf-8\"/>"
-        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/>"
-        f"<title>{esc_title}</title>"
-        "</head>"
-        "<body style=\"margin:0;padding:0;background:#f5f7fb;font-family:Arial,sans-serif;color:#1f2937;\">"
-        "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" "
-        "style=\"padding:24px 12px;\">"
-        "<tr><td align=\"center\">"
-        "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" "
-        "style=\"max-width:560px;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;\">"
-        "<tr><td style=\"padding:28px 28px 12px;\">"
-        f"<h1 style=\"margin:0 0 12px;font-size:22px;line-height:1.3;color:#111827;\">{esc_title}</h1>"
-        f"<p style=\"margin:0 0 18px;font-size:15px;line-height:1.6;\">{esc_intro}</p>"
-        "<p style=\"margin:0 0 22px;\">"
-        f"<a href=\"{esc_action_url}\" "
-        "style=\"display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;"
-        "padding:12px 18px;border-radius:8px;font-size:14px;font-weight:600;\">"
-        f"{esc_action_text}</a></p>"
-        "</td></tr></table>"
-        "</td></tr></table>"
-        "</body></html>"
-    )
-
-
 @router.post(
     "/register",
     response_model=MessageResponse,
@@ -273,16 +241,19 @@ async def register(
         verify_link = build_email_verification_link(
             token_id=tid, signature=sig, request=request
         )
-        email_body = (
-            "Подтвердите регистрацию в Plashki.\n\n"
-            f"Перейдите по ссылке:\n{verify_link}\n\n"
-            f"Ссылка действует {settings.email_verification_token_ttl_minutes} минут."
+        assets_base = resolve_email_assets_base_url(
+            request_base_url=str(request.base_url),
         )
-        email_html = _build_action_email_html(
-            title="Подтверждение email в Plashki",
-            intro="Завершите регистрацию: подтвердите email по кнопке ниже.",
-            action_text="Подтвердить email",
+        email_body = build_registration_verification_email_plain(
+            username=pending.username,
             action_url=verify_link,
+            ttl_minutes=settings.email_verification_token_ttl_minutes,
+        )
+        email_html = build_registration_verification_email_html(
+            username=pending.username,
+            action_url=verify_link,
+            ttl_minutes=settings.email_verification_token_ttl_minutes,
+            assets_base_url=assets_base,
         )
         sent = alert_service.send_email(
             to_email=pending.email,
@@ -448,7 +419,7 @@ async def resend_verification(
     body: ForgotPasswordBody,
     session: AsyncSession = Depends(get_session),
 ) -> MessageResponse:
-    to_email, pair, reason = await email_verification_service.create_verification_token_for_email(
+    to_email, pair, reason, username = await email_verification_service.create_verification_token_for_email(
         session, email=body.email
     )
     if to_email is None or pair is None:
@@ -464,16 +435,20 @@ async def resend_verification(
     verify_link = build_email_verification_link(
         token_id=tid, signature=sig, request=request
     )
-    email_body = (
-        "Подтвердите регистрацию в Plashki.\n\n"
-        f"Перейдите по ссылке:\n{verify_link}\n\n"
-        f"Ссылка действует {settings.email_verification_token_ttl_minutes} минут."
+    assets_base = resolve_email_assets_base_url(
+        request_base_url=str(request.base_url),
     )
-    email_html = _build_action_email_html(
-        title="Подтверждение email в Plashki",
-        intro="Нажмите кнопку ниже, чтобы подтвердить email.",
-        action_text="Подтвердить email",
+    display_name = username or to_email.split("@", 1)[0]
+    email_body = build_registration_verification_email_plain(
+        username=display_name,
         action_url=verify_link,
+        ttl_minutes=settings.email_verification_token_ttl_minutes,
+    )
+    email_html = build_registration_verification_email_html(
+        username=display_name,
+        action_url=verify_link,
+        ttl_minutes=settings.email_verification_token_ttl_minutes,
+        assets_base_url=assets_base,
     )
 
     sent = alert_service.send_email(
@@ -511,16 +486,19 @@ async def forgot_password(
 
     rid, sig = pair
     reset_link = build_password_reset_link(token_id=rid, signature=sig, request=request)
-    email_body = (
-        "Вы запросили сброс пароля.\n\n"
-        f"Перейдите по ссылке:\n{reset_link}\n\n"
-        f"Ссылка действует {settings.reset_token_ttl_minutes} минут."
+    assets_base = resolve_email_assets_base_url(
+        request_base_url=str(request.base_url),
     )
-    email_html = _build_action_email_html(
-        title="Сброс пароля в Plashki",
-        intro="Мы получили запрос на сброс пароля. Подтвердите действие по кнопке ниже.",
-        action_text="Сбросить пароль",
+    email_body = build_password_reset_email_plain(
+        username=user.username,
         action_url=reset_link,
+        ttl_minutes=settings.reset_token_ttl_minutes,
+    )
+    email_html = build_password_reset_email_html(
+        username=user.username,
+        action_url=reset_link,
+        ttl_minutes=settings.reset_token_ttl_minutes,
+        assets_base_url=assets_base,
     )
 
     sent = alert_service.send_email(

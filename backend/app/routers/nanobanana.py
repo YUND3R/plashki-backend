@@ -10,6 +10,7 @@ from app.schemas.nanobanana import NanoBananaProcessResponse
 from app.media.application import ALLOWED_IMAGE_TYPES, InvalidUpload
 from app.media.ports import FileStorage
 from app.media.providers import get_file_storage
+from app.media.public_urls import resolve_public_base_url
 from app.nanobanana.application import process_and_store_image
 from app.nanobanana.ports import NanoBananaClient
 from app.nanobanana.providers import get_nanobanana_client
@@ -55,7 +56,9 @@ async def process_image_via_nanobanana(
             source_mime=ct,
             prompt=prompt,
             negative_prompt=negative_prompt,
-            request_base_url=str(request.base_url),
+            request_base_url=resolve_public_base_url(
+                request_base_url=str(request.base_url),
+            ),
         )
     except InvalidUpload as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc

@@ -6,6 +6,7 @@ from sqlalchemy.orm import selectinload
 
 from app.db.base import GameRole, GameStatus
 from app.db.models import GameLobby, LobbyMembership
+from app.media.public_urls import public_file_url_in_list, rewrite_public_file_url
 from app.schemas.lobby import GameLobbyPublic
 from app.sessions.application.lobbies import get_lobby_with_players, require_lobby_host
 from app.sessions.application.roster import RosterPort, SqlAlchemyRoster
@@ -261,9 +262,10 @@ async def set_lobby_member_display_photo(
     if card is None:
         return "card_not_found", None
     photo = photo_url.strip()
-    if photo not in card.photo_urls:
+    if not public_file_url_in_list(photo, list(card.photo_urls)):
         return "invalid_photo_url", None
-    membership.lobby_photo_url = photo
+    canonical = rewrite_public_file_url(photo) or photo
+    membership.lobby_photo_url = canonical
     await session.commit()
     return await _result(session, lobby_id)
 

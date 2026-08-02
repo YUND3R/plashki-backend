@@ -9,6 +9,7 @@ from app.media.application import (
     upload_image,
 )
 from app.media.providers import get_file_storage
+from app.media.public_urls import resolve_public_base_url
 
 
 def remove_stored_file_if_ours(public_url: str | None) -> None:
@@ -19,7 +20,7 @@ def public_file_url(request: Request, filename: str) -> str:
     return build_public_file_url(
         get_file_storage(),
         filename,
-        str(request.base_url),
+        resolve_public_base_url(request_base_url=str(request.base_url)),
     )
 
 
@@ -33,7 +34,9 @@ async def save_image_upload(file: UploadFile, request: Request) -> str:
             content_type=file.content_type,
             body=body,
             max_mb=settings.upload_max_mb,
-            request_base_url=str(request.base_url),
+            request_base_url=resolve_public_base_url(
+                request_base_url=str(request.base_url),
+            ),
         )
     except InvalidUpload as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc

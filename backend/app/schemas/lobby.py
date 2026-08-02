@@ -169,7 +169,10 @@ class OverlayDesignCatalogResponse(BaseModel):
     options: list[LobbyOverlayDesignOption]
 
 
-class OverlayPlayerState(BaseModel):
+from app.schemas.public_media import PublicMediaResponseMixin
+
+
+class OverlayPlayerState(PublicMediaResponseMixin, BaseModel):
     seat_order: int
     membership_id: uuid.UUID
     nickname: str
@@ -210,7 +213,7 @@ class SetLobbyMemberDisplayPhotoBody(BaseModel):
     photo_url: str = Field(min_length=1, max_length=1024)
 
 
-class LobbyPlayerPublic(BaseModel):
+class LobbyPlayerPublic(PublicMediaResponseMixin, BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     membership_id: uuid.UUID

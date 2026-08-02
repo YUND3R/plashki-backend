@@ -89,7 +89,10 @@ class PatchMeProfileBody(BaseModel):
     last_name: str = Field(min_length=1, max_length=100)
 
 
-class UserMe(BaseModel):
+from app.schemas.public_media import PublicMediaResponseMixin
+
+
+class UserMe(PublicMediaResponseMixin, BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
