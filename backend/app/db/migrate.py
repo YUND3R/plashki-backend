@@ -9,6 +9,7 @@ from sqlalchemy import inspect
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.core.config import settings
+from app.db.rewrite_media_urls import rewrite_stored_media_urls
 ROOT = Path(__file__).resolve().parents[2]
 BASELINE_REVISION = "20260724_01"
 NORMALIZED_REVISION = "20260724_02"
@@ -154,6 +155,7 @@ def migrate(database_url: str | None = None, schema: str | None = None) -> None:
     elif not versioned and state == "normalized":
         command.stamp(config, NORMALIZED_REVISION)
     command.upgrade(config, "head")
+    rewrite_stored_media_urls(database_url=database_url or settings.database_url)
 
 
 if __name__ == "__main__":
