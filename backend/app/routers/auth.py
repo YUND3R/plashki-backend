@@ -88,6 +88,17 @@ def _set_csrf_cookie(response: Response, csrf_token: str) -> None:
     )
 
 
+def _csrf_from_request(request: Request) -> str | None:
+    value = (request.cookies.get(settings.csrf_cookie_name) or "").strip()
+    return value or None
+
+
+def _user_me_response(request: Request, user: UserProfile) -> UserMe:
+    return UserMe.model_validate(user).model_copy(
+        update={"csrf_token": _csrf_from_request(request)}
+    )
+
+
 def _issue_auth_session(
     response: Response,
     user: UserProfile,
@@ -98,7 +109,7 @@ def _issue_auth_session(
     csrf_token = _new_csrf_token()
     _set_access_cookie(response, token)
     _set_csrf_cookie(response, csrf_token)
-    return AuthSessionResponse(message=message)
+    return AuthSessionResponse(message=message, csrf_token=csrf_token)
 
 
 def _clear_access_cookie(response: Response) -> None:
@@ -615,13 +626,14 @@ async def reset_password_form_post(
     summary="Текущий пользователь по JWT",
 )
 async def me(
+    request: Request,
     session: AsyncSession = Depends(get_session),
     user_id: uuid.UUID = Depends(get_current_user_id),
 ) -> UserMe:
     user = await session.get(UserProfile, user_id)
     if user is None:
         raise HTTPException(status_code=401, detail="Пользователь не найден")
-    return UserMe.model_validate(user)
+    return _user_me_response(request, user)
 
 
 @router.patch(
@@ -631,6 +643,7 @@ async def me(
     description="JSON: **first_name**, **last_name**. Пустые строки после trim недопустимы.",
 )
 async def patch_me_profile(
+    request: Request,
     body: PatchMeProfileBody,
     session: AsyncSession = Depends(get_session),
     user_id: uuid.UUID = Depends(get_current_user_id),
@@ -656,7 +669,7 @@ async def patch_me_profile(
     user.last_name = ln
     await session.commit()
     await session.refresh(user)
-    return UserMe.model_validate(user)
+    return _user_me_response(request, user)
 
 
 @router.patch(
@@ -689,7 +702,7 @@ async def patch_me_avatar(
 
     remove_stored_file_if_ours(previous)
 
-    return UserMe.model_validate(user)
+    return _user_me_response(request, user)
 
 
 @router.delete(
@@ -699,6 +712,7 @@ async def patch_me_avatar(
     description="Сбрасывает avatar_url в null. Если файл был загружен через этот сервис, он удаляется с диска.",
 )
 async def delete_me_avatar(
+    request: Request,
     session: AsyncSession = Depends(get_session),
     user_id: uuid.UUID = Depends(get_current_user_id),
 ) -> UserMe:
@@ -713,4 +727,4 @@ async def delete_me_avatar(
 
     remove_stored_file_if_ours(previous)
 
-    return UserMe.model_validate(user)
+    return _user_me_response(request, user)

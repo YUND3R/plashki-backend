@@ -1,4 +1,5 @@
 from typing import Literal
+from urllib.parse import urlparse
 
 from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -145,6 +146,15 @@ class Settings(BaseSettings):
         le=300,
         validation_alias=AliasChoices("NANOBANANA_TIMEOUT_SECONDS"),
     )
+
+    @model_validator(mode="after")
+    def derive_auth_cookie_domain(self) -> "Settings":
+        if self.auth_cookie_domain.strip():
+            return self
+        host = (urlparse(self.public_base_url.strip()).hostname or "").lower()
+        if host.startswith("api.") and host.count(".") >= 2:
+            object.__setattr__(self, "auth_cookie_domain", f".{host[4:]}")
+        return self
 
     @model_validator(mode="after")
     def validate_database_url(self) -> "Settings":

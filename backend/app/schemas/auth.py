@@ -81,6 +81,7 @@ class MessageResponse(BaseModel):
 
 class AuthSessionResponse(BaseModel):
     message: str
+    csrf_token: str
 
 
 class PatchMeProfileBody(BaseModel):
@@ -102,6 +103,7 @@ class UserMe(PublicMediaResponseMixin, BaseModel):
     nickname: str
     role: Role
     email_verified_at: datetime | None = None
+    csrf_token: str | None = None
 
     @computed_field  # type: ignore[prop-decorator]
     @property
