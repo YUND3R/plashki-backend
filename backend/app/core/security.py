@@ -19,7 +19,7 @@ def _jwt_secret() -> str:
     s = settings.jwt_secret_key.strip()
     if s:
         return s
-    if settings.environment in ("local", "development"):
+    if settings.environment == "local":
         return "local-only-plashki-jwt-secret-min-32-chars!!"
     raise RuntimeError("Задайте JWT_SECRET_KEY (или SECRET_KEY) в .env")
 

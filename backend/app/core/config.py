@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     )
 
     expose_openapi: bool = Field(
-        default=True,
+        default=False,
         validation_alias=AliasChoices("EXPOSE_OPENAPI"),
     )
 
@@ -178,18 +178,28 @@ class Settings(BaseSettings):
         raise ValueError("DATABASE_URL обязателен в .env для development/production")
 
     @model_validator(mode="after")
-    def validate_production_jwt_secret(self) -> "Settings":
-        if self.environment != "production":
+    def validate_deployed_jwt_secret(self) -> "Settings":
+        if self.environment == "local":
             return self
         secret = self.jwt_secret_key.strip()
         if not secret:
             raise ValueError(
-                "JWT_SECRET_KEY (или SECRET_KEY) обязателен в production"
+                "JWT_SECRET_KEY (или SECRET_KEY) обязателен вне local"
             )
         if len(secret) < 32:
             raise ValueError(
-                "JWT_SECRET_KEY (или SECRET_KEY) в production — не короче 32 символов"
+                "JWT_SECRET_KEY (или SECRET_KEY) вне local — не короче 32 символов"
             )
+        return self
+
+    @model_validator(mode="after")
+    def validate_deployed_cors_and_docs(self) -> "Settings":
+        if self.environment == "local":
+            return self
+        if not self.cors_origins.strip():
+            raise ValueError("CORS_ORIGINS обязателен вне local")
+        if self.environment == "production" and self.expose_openapi:
+            raise ValueError("EXPOSE_OPENAPI должен быть false в production")
         return self
 
     @model_validator(mode="after")
@@ -210,15 +220,14 @@ class Settings(BaseSettings):
 
     @property
     def dev_endpoints_enabled(self) -> bool:
-        return self.environment != "production"
+        return self.environment == "local"
 
     @property
     def cors_origin_list(self) -> list[str]:
         raw = [o.strip() for o in self.cors_origins.split(",") if o.strip()]
         if raw:
             return raw
-        # Иначе fetch с Vite (другой origin) даёт «Failed to fetch» без CORS.
-        if self.environment in ("local", "development"):
+        if self.environment == "local":
             return [
                 "http://localhost:5173",
                 "http://127.0.0.1:5173",

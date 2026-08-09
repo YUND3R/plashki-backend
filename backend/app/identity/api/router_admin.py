@@ -143,6 +143,11 @@ async def admin_patch_user_access(
             status_code=422,
             detail="Укажите хотя бы одно поле: role или subscription.",
         )
+    if err == "admin_role_forbidden":
+        raise HTTPException(
+            status_code=422,
+            detail="Роль ADMIN нельзя назначать через этот endpoint.",
+        )
     assert user is not None
     return AdminUserAccessResponse(
         id=user.id,

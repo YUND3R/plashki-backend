@@ -68,37 +68,6 @@ async def get_my_overlay_design_access(
 
 
 @router.post(
-    "/overlay-designs/purchase",
-    response_model=GrantOverlayDesignAccessResponse,
-    summary="Купить/продлить аренду плашки (имитация оплаты)",
-)
-async def purchase_overlay_design_access(
-    body: GrantOverlayDesignAccessBody,
-    session: AsyncSession = Depends(get_session),
-    user_id: uuid.UUID = Depends(get_current_user_id),
-) -> GrantOverlayDesignAccessResponse:
-    entry = get_catalog_entry(body.design_code)
-    if entry is None:
-        raise HTTPException(status_code=404, detail="Дизайн overlay не найден.")
-
-    err, expires_at = await grant_design_access(
-        session,
-        user_id=user_id,
-        design=body.design_code,
-    )
-    if err == "unknown_design" or expires_at is None:
-        raise HTTPException(status_code=404, detail="Дизайн overlay не найден.")
-
-    return GrantOverlayDesignAccessResponse(
-        user_id=user_id,
-        design_code=body.design_code,
-        expires_at=expires_at,
-        price_rub=entry.price_rub,
-        rental_hours=entry.rental_hours,
-    )
-
-
-@router.post(
     "/admin/users/{user_id}/overlay-design-access",
     response_model=GrantOverlayDesignAccessResponse,
     summary="[ADMIN] Выдать/продлить аренду плашки на 48ч (имитация оплаты)",

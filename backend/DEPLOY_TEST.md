@@ -21,10 +21,13 @@ git push origin dev
 
 ```bash
 curl http://IP:8000/health
-curl -X POST http://IP:8000/dev/test-admin -H "Content-Type: application/json" -d '{"username":"admin","email":"a@t.local","password":"admin"}'
 ```
 
 Фронт: `VITE_API_BASE_URL=http://IP:8000` в `.env.production` / `.env.local`
+
+`/dev/*` доступен только при `ENVIRONMENT=local` и не должен использоваться на VPS.
+Для публичного Nginx включи HTTPS redirect, `server_tokens off`, HSTS после проверки всех
+поддоменов и ограничение запросов (`limit_req`) для auth-роутов.
 
 ## Production
 

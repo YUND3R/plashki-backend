@@ -13,6 +13,7 @@ from app.core.config import settings
 from app.core.errors import AppError
 from app.db.session import engine
 from app.identity.api.router_admin import router as admin_router
+from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.routers import auth as auth_routes
 from app.routers import dev as dev_routes
@@ -98,6 +99,7 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.add_middleware(RateLimitMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_exception_handler(AppError, application_error_handler)
 

@@ -21,10 +21,10 @@ def build_email_verification_link(
 
     pub = settings.public_base_url.strip().rstrip("/")
     if pub:
-        return f"{pub}/auth/verify-email/{token_id}/{signature}"
+        return f"{pub}/auth/verify-email?vid={token_id}&sig={quote(signature, safe='')}"
 
     if request is not None:
         b = str(request.base_url).rstrip("/")
-        return f"{b}/auth/verify-email/{token_id}/{signature}"
+        return f"{b}/auth/verify-email?vid={token_id}&sig={quote(signature, safe='')}"
 
-    return f"/auth/verify-email/{token_id}/{signature}"
+    return f"/auth/verify-email?vid={token_id}&sig={quote(signature, safe='')}"

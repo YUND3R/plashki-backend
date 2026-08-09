@@ -95,6 +95,8 @@ async def admin_update_user_access(
         return "empty_update", None
 
     if role is not None:
+        if role == Role.ADMIN:
+            return "admin_role_forbidden", None
         user.role = role
     if subscription is not None:
         user.commerce_subscription.subscription = subscription

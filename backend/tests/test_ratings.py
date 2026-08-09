@@ -571,9 +571,13 @@ def test_remove_rating_participant_with_games_still_deletes(monkeypatch: pytest.
     class _FakeSession:
         def __init__(self):
             self.committed = False
+            self.executed = False
 
         async def commit(self):
             self.committed = True
+
+        async def execute(self, _statement):
+            self.executed = True
 
     session = _FakeSession()
     err, row = asyncio.run(
@@ -587,6 +591,7 @@ def test_remove_rating_participant_with_games_still_deletes(monkeypatch: pytest.
     assert err is None
     assert row is not None
     assert session.committed is True
+    assert session.executed is True
     assert fake_rating.participants == []
 
 
@@ -627,9 +632,13 @@ def test_remove_rating_participant_success(monkeypatch: pytest.MonkeyPatch) -> N
     class _FakeSession:
         def __init__(self):
             self.committed = False
+            self.executed = False
 
         async def commit(self):
             self.committed = True
+
+        async def execute(self, _statement):
+            self.executed = True
 
     session = _FakeSession()
     err, row = asyncio.run(
@@ -643,6 +652,7 @@ def test_remove_rating_participant_success(monkeypatch: pytest.MonkeyPatch) -> N
     assert err is None
     assert row is not None
     assert session.committed is True
+    assert session.executed is True
     assert len(fake_rating.participants) == 1
     assert fake_rating.participants[0].player_card_id == second_id
     assert fake_rating.participants[0].sort_order == 0

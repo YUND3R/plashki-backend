@@ -22,6 +22,7 @@ from app.core.config import settings
 from app.core.security import create_access_token
 from app.db.session import get_session
 from app.deps.auth import get_current_user_id
+from app.deps.origin import require_trusted_origin
 from app.db.models import UserProfile
 from app.notifications.email_templates import (
     build_password_reset_email_html,
@@ -118,6 +119,9 @@ def _clear_access_cookie(response: Response) -> None:
         key=settings.auth_cookie_name,
         path="/",
         domain=_auth_cookie_domain(),
+        secure=settings.auth_cookie_secure_effective,
+        httponly=True,
+        samesite=settings.auth_cookie_samesite,
     )
 
 
@@ -126,6 +130,9 @@ def _clear_csrf_cookie(response: Response) -> None:
         key=settings.csrf_cookie_name,
         path="/",
         domain=_auth_cookie_domain(),
+        secure=settings.auth_cookie_secure_effective,
+        httponly=False,
+        samesite=settings.auth_cookie_samesite,
     )
 
 
@@ -192,7 +199,7 @@ async def register(
     request: Request,
     username: Annotated[str, Form(min_length=1, max_length=55)],
     email: Annotated[str, Form(min_length=1, max_length=55)],
-    password: Annotated[str, Form(min_length=1, max_length=128)],
+    password: Annotated[str, Form(min_length=8, max_length=128)],
     first_name: Annotated[str, Form(min_length=1, max_length=100)],
     last_name: Annotated[str, Form(min_length=1, max_length=100)],
     avatar: UploadFile | None = File(None),
@@ -226,6 +233,8 @@ async def register(
             status_code=422,
             detail="Имя и фамилия — не длиннее 100 символов каждое.",
         )
+    if err == "weak_password":
+        raise HTTPException(status_code=422, detail="Пароль должен содержать минимум 8 символов.")
     if err == "username":
         raise HTTPException(
             status_code=409,
@@ -301,6 +310,7 @@ async def login(
     body: LoginBody,
     response: Response,
     session: AsyncSession = Depends(get_session),
+    _origin: None = Depends(require_trusted_origin),
 ) -> AuthSessionResponse:
     user = await auth_login_service.authenticate_by_login_or_email(
         session, body.login, body.password
@@ -345,8 +355,15 @@ async def verify_email_signed_get(
 async def verify_email_get(
     code: Annotated[str | None, Query(min_length=8, max_length=512)] = None,
     token: Annotated[str | None, Query(min_length=10, max_length=512)] = None,
+    vid: uuid.UUID | None = None,
+    sig: Annotated[str | None, Query(min_length=64, max_length=64)] = None,
     session: AsyncSession = Depends(get_session),
 ) -> RedirectResponse | HTMLResponse:
+    if vid is not None and sig:
+        result, user = await email_verification_service.verify_email_by_signed_link(
+            session, token_id=vid, signature=sig
+        )
+        return _email_verify_browser_response(result, user)
     secret = ((code or token) or "").strip()
     if not secret:
         fe = settings.frontend_verify_email_url.strip()
@@ -377,6 +394,7 @@ async def verify_email(
     body: VerifyEmailBody,
     response: Response,
     session: AsyncSession = Depends(get_session),
+    _origin: None = Depends(require_trusted_origin),
 ) -> AuthSessionResponse:
     if body.token_id is not None and body.signature:
         result, user = await email_verification_service.verify_email_by_signed_link(
@@ -411,8 +429,14 @@ async def verify_email(
 )
 async def logout(
     response: Response,
-    _user_id: uuid.UUID = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_session),
+    user_id: uuid.UUID = Depends(get_current_user_id),
 ) -> MessageResponse:
+    user = await session.get(UserProfile, user_id)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Пользователь не найден")
+    user.token_version += 1
+    await session.commit()
     _clear_access_cookie(response)
     _clear_csrf_cookie(response)
     return MessageResponse(message="Вы успешно вышли из аккаунта.")
@@ -540,6 +564,7 @@ async def reset_password(
     body: ResetPasswordBody,
     response: Response,
     session: AsyncSession = Depends(get_session),
+    _origin: None = Depends(require_trusted_origin),
 ) -> AuthSessionResponse:
     user = None
     if body.token_id is not None and body.signature:
@@ -565,6 +590,8 @@ async def reset_password(
         )
     if result == "expired_token":
         raise HTTPException(status_code=400, detail="Токен сброса просрочен.")
+    if result == "weak_password":
+        raise HTTPException(status_code=422, detail="Пароль должен содержать минимум 8 символов.")
     raise HTTPException(status_code=400, detail="Неверный токен сброса.")
 
 
@@ -606,6 +633,7 @@ async def reset_password_form_post(
     signature: str = Form(min_length=64, max_length=64),
     new_password: str = Form(min_length=8, max_length=128),
     session: AsyncSession = Depends(get_session),
+    _origin: None = Depends(require_trusted_origin),
 ) -> AuthSessionResponse:
     result, user = await password_reset_service.reset_password_by_signed(
         session,
@@ -621,6 +649,8 @@ async def reset_password_form_post(
         )
     if result == "expired_token":
         raise HTTPException(status_code=400, detail="Ссылка сброса просрочена.")
+    if result == "weak_password":
+        raise HTTPException(status_code=422, detail="Пароль должен содержать минимум 8 символов.")
     raise HTTPException(status_code=400, detail="Неверная ссылка сброса.")
 
 

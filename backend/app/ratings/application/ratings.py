@@ -540,6 +540,14 @@ async def remove_rating_participant(
         return "participant_not_found", None
 
     row.participants.remove(target)
+    await session.execute(
+        delete(RatingGameResult).where(
+            RatingGameResult.player_card_id == player_card_id,
+            RatingGameResult.rating_game_id.in_(
+                select(RatingGame.id).where(RatingGame.rating_id == rating_id)
+            ),
+        )
+    )
     for index, participant in enumerate(row.participants):
         participant.sort_order = index
 

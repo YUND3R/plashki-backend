@@ -5,6 +5,7 @@ from typing import Any
 import httpx
 from fastapi import HTTPException
 
+from app.core.safe_url import allowed_host_from_url, validate_outbound_https_url
 
 def as_full_url(base: str, path: str) -> str:
     return base.rstrip("/") + "/" + path.lstrip("/")
@@ -60,6 +61,7 @@ class HttpNanoBananaClient:
         path: str,
         model: str,
         timeout_seconds: float,
+        allowed_result_hosts: frozenset[str] | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self._api_key = api_key.strip()
@@ -68,6 +70,9 @@ class HttpNanoBananaClient:
         self._model = model.strip()
         self._timeout = timeout_seconds
         self._transport = transport
+        self._allowed_result_hosts = allowed_result_hosts or frozenset(
+            {allowed_host_from_url(self._base_url)}
+        )
 
     async def process(self, *, image_bytes: bytes, source_mime: str, prompt: str, negative_prompt: str | None = None) -> tuple[bytes, str]:
         if not self._api_key:
@@ -114,11 +119,18 @@ class HttpNanoBananaClient:
             image_url = extract_image_url(data)
             if image_url:
                 try:
-                    image_response = await client.get(image_url)
-                except httpx.RequestError as exc:
+                    safe_url = validate_outbound_https_url(
+                        image_url, allowed_hosts=self._allowed_result_hosts
+                    )
+                    image_response = await client.get(safe_url, follow_redirects=False)
+                except (ValueError, httpx.RequestError) as exc:
                     raise HTTPException(status_code=502, detail=f"Не удалось скачать результат Nano Banana: {exc}") from exc
                 if image_response.status_code >= 400:
                     raise HTTPException(status_code=502, detail="Nano Banana вернул URL результата, но файл недоступен.")
                 mime = (image_response.headers.get("content-type") or "").split(";")[0].strip().lower()
+                if not mime.startswith("image/"):
+                    raise HTTPException(status_code=502, detail="Nano Banana вернул результат не в формате изображения.")
+                if len(image_response.content) > 10 * 1024 * 1024:
+                    raise HTTPException(status_code=502, detail="Результат Nano Banana слишком большой.")
                 return image_response.content, mime or guess_mime_from_bytes(image_response.content)
         raise HTTPException(status_code=502, detail="Nano Banana вернул неожиданный формат ответа.")

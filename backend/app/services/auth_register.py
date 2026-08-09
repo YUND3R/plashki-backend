@@ -4,7 +4,7 @@ from sqlalchemy import and_, delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.password import hash_password
+from app.core.password import hash_password, validate_password_strength
 from app.core.config import settings
 from app.db.models import PendingRegistration, UserProfile
 from app.services.user_uniqueness import registration_conflict
@@ -52,6 +52,8 @@ async def register_user(
         return "empty_names", None, ""
     if len(first_name) > 100 or len(last_name) > 100:
         return "name_too_long", None, ""
+    if validate_password_strength(password):
+        return "weak_password", None, ""
 
     conflict = await registration_conflict(session, username, email)
     if conflict == "username":

@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.link_signing import sign_password_reset, verify_password_reset_hmac
-from app.core.password import hash_password
+from app.core.password import hash_password, validate_password_strength
 from app.db.models import PasswordResetToken, UserProfile
 
 
@@ -66,6 +66,8 @@ async def reset_password_by_signed(
     signature: str,
     new_password: str,
 ) -> tuple[str, UserProfile | None]:
+    if validate_password_strength(new_password):
+        return "weak_password", None
     now = datetime.now(UTC)
     token_row = await session.get(PasswordResetToken, token_id)
     if token_row is None:
@@ -99,6 +101,8 @@ async def reset_password_by_token(
     token: str,
     new_password: str,
 ) -> tuple[str, UserProfile | None]:
+    if validate_password_strength(new_password):
+        return "weak_password", None
     token_hash = _hash_token(token.strip())
     now = datetime.now(UTC)
     result = await session.execute(
