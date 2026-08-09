@@ -314,6 +314,30 @@ async def get_rating_game(
     return None, _game_public(game)
 
 
+async def delete_rating_game(
+    session: AsyncSession,
+    owner_user_id: uuid.UUID,
+    rating_id: uuid.UUID,
+    game_id: uuid.UUID,
+) -> tuple[str | None, bool]:
+    game = (
+        await session.execute(
+            select(RatingGame)
+            .join(Rating, Rating.id == RatingGame.rating_id)
+            .where(
+                RatingGame.id == game_id,
+                RatingGame.rating_id == rating_id,
+                Rating.owner_user_id == owner_user_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if game is None:
+        return "not_found", False
+    await session.delete(game)
+    await session.commit()
+    return None, True
+
+
 async def _replace_participants(
     session: AsyncSession,
     rating: Rating,

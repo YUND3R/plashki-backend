@@ -454,3 +454,60 @@ def test_sync_rating_from_lobby_copies_best_move(monkeypatch: pytest.MonkeyPatch
     added_results = [item for item in session.added if isinstance(item, RatingGameResult)]
     assert len(added_results) == 1
     assert added_results[0].best_move == ["1", "", "3"]
+
+
+def test_delete_rating_game_not_found() -> None:
+    class _ExecResult:
+        def scalar_one_or_none(self):
+            return None
+
+    class _FakeSession:
+        async def execute(self, _stmt):
+            return _ExecResult()
+
+    err, deleted = asyncio.run(
+        ratings_app.delete_rating_game(
+            session=_FakeSession(),  # type: ignore[arg-type]
+            owner_user_id=uuid.uuid4(),
+            rating_id=uuid.uuid4(),
+            game_id=uuid.uuid4(),
+        )
+    )
+    assert err == "not_found"
+    assert deleted is False
+
+
+def test_delete_rating_game_success() -> None:
+    game = SimpleNamespace(id=uuid.uuid4())
+
+    class _ExecResult:
+        def scalar_one_or_none(self):
+            return game
+
+    class _FakeSession:
+        def __init__(self):
+            self.deleted = None
+            self.committed = False
+
+        async def execute(self, _stmt):
+            return _ExecResult()
+
+        async def delete(self, row):
+            self.deleted = row
+
+        async def commit(self):
+            self.committed = True
+
+    session = _FakeSession()
+    err, deleted = asyncio.run(
+        ratings_app.delete_rating_game(
+            session=session,  # type: ignore[arg-type]
+            owner_user_id=uuid.uuid4(),
+            rating_id=uuid.uuid4(),
+            game_id=game.id,
+        )
+    )
+    assert err is None
+    assert deleted is True
+    assert session.deleted is game
+    assert session.committed is True

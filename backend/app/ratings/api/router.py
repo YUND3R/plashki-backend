@@ -11,6 +11,7 @@ from app.ratings.application.ratings import (
     create_rating_game,
     create_rating,
     delete_rating,
+    delete_rating_game,
     get_rating_game,
     list_rating_games,
     get_rating,
@@ -265,6 +266,27 @@ async def get_rating_table_endpoint(
         raise HTTPException(status_code=404, detail="Рейтинг не найден")
     assert row is not None
     return row
+
+
+@router.delete(
+    "/{rating_id}/games/{game_id}",
+    status_code=204,
+    summary="Удалить игру из рейтинга",
+)
+async def delete_rating_game_by_id(
+    rating_id: uuid.UUID,
+    game_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    current_user_id: uuid.UUID = Depends(get_current_user_id),
+) -> None:
+    err, _ = await delete_rating_game(
+        session,
+        current_user_id,
+        rating_id,
+        game_id,
+    )
+    if err == "not_found":
+        raise HTTPException(status_code=404, detail="Игра рейтинга не найдена")
 
 
 @router.delete(
