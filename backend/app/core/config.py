@@ -112,6 +112,14 @@ class Settings(BaseSettings):
         default="",
         validation_alias=AliasChoices("SMTP_FROM_EMAIL"),
     )
+    smtp_from_name: str = Field(
+        default="Plashki",
+        validation_alias=AliasChoices("SMTP_FROM_NAME"),
+    )
+    smtp_reply_to_email: str = Field(
+        default="",
+        validation_alias=AliasChoices("SMTP_REPLY_TO_EMAIL", "SMTP_REPLY_TO"),
+    )
     smtp_use_tls: bool = Field(default=True, validation_alias=AliasChoices("SMTP_USE_TLS"))
     smtp_use_ssl: bool = Field(
         default=False,

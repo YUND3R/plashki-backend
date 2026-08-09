@@ -11,12 +11,6 @@ _TEXT_PRIMARY = "#111827"
 _TEXT_MUTED = "#6B7280"
 _BORDER = "#E5E7EB"
 _FONT = "'Inter', Arial, Helvetica, sans-serif"
-_FONT_LINK = (
-    "<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\"/>"
-    "<link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin=\"\"/>"
-    "<link href=\"https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;display=swap\" "
-    "rel=\"stylesheet\"/>"
-)
 _LOGO_CID = "plashki-logo"
 _ICON_GUARD_CID = "plashki-icon-guard"
 _ICON_WARNING_CID = "plashki-icon-warning"
@@ -38,24 +32,21 @@ def resolve_email_assets_base_url(*, request_base_url: str = "") -> str:
 
 
 def email_inline_images(*, assets_base_url: str = "") -> dict[str, bytes]:
-    images: dict[str, bytes] = {}
-    _, logo_attach = _logo_attachment(assets_base_url=assets_base_url)
-    images.update(logo_attach)
-    if not assets_base_url:
-        images[_ICON_GUARD_CID] = _ICON_GUARD_PNG_BYTES
-        images[_ICON_WARNING_CID] = _ICON_WARNING_PNG_BYTES
-    return images
+    _ = assets_base_url
+    return {
+        _LOGO_CID: _LOGO_PNG_BYTES,
+        _ICON_GUARD_CID: _ICON_GUARD_PNG_BYTES,
+        _ICON_WARNING_CID: _ICON_WARNING_PNG_BYTES,
+    }
 
 
 def _logo_attachment(*, assets_base_url: str) -> tuple[str, dict[str, bytes]]:
-    if assets_base_url:
-        return f"{assets_base_url.rstrip('/')}/logo.png", {}
+    _ = assets_base_url
     return f"cid:{_LOGO_CID}", {_LOGO_CID: _LOGO_PNG_BYTES}
 
 
 def _icon_src(*, name: str, assets_base_url: str) -> str:
-    if assets_base_url:
-        return f"{assets_base_url.rstrip('/')}/{name}.png"
+    _ = assets_base_url
     cid = _ICON_GUARD_CID if name == "icon-guard" else _ICON_WARNING_CID
     return f"cid:{cid}"
 
@@ -139,7 +130,6 @@ def _build_transactional_email_html(
         "<meta charset=\"utf-8\"/>"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/>"
         f"<title>{esc_title}</title>"
-        f"{_FONT_LINK}"
         "</head>"
         f"<body style=\"margin:0;padding:0;background:#ffffff;font-family:{_FONT};color:{_TEXT_PRIMARY};\">"
         "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">"

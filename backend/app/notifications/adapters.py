@@ -1,5 +1,8 @@
 import logging
 import smtplib
+from email.headerregistry import Address
+from email.utils import format_datetime, make_msgid
+from datetime import datetime, UTC
 from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -18,6 +21,8 @@ class SmtpEmailSender:
         username: str,
         password: str,
         from_email: str,
+        from_name: str,
+        reply_to_email: str,
         use_tls: bool,
         use_ssl: bool,
     ) -> None:
@@ -26,6 +31,8 @@ class SmtpEmailSender:
         self.username = username.strip()
         self.password = password
         self.from_email = from_email.strip()
+        self.from_name = from_name.strip()
+        self.reply_to_email = reply_to_email.strip()
         self.use_tls = use_tls
         self.use_ssl = use_ssl
 
@@ -60,8 +67,16 @@ class SmtpEmailSender:
                 message.attach(MIMEText(html_body, "html", "utf-8"))
         else:
             message = MIMEText(body, "plain", "utf-8")
+
+        sender = self._formatted_sender()
+        message["Date"] = format_datetime(datetime.now(UTC))
+        message["Message-ID"] = make_msgid(domain=self._message_id_domain())
+        message["X-Auto-Response-Suppress"] = "All"
+        message["Auto-Submitted"] = "auto-generated"
         message["Subject"] = subject
-        message["From"] = self.from_email
+        message["From"] = sender
+        if self.reply_to_email:
+            message["Reply-To"] = self.reply_to_email
         message["To"] = to_email
         try:
             smtp_class = smtplib.SMTP_SSL if self.use_ssl or self.port == 465 else smtplib.SMTP
@@ -75,6 +90,20 @@ class SmtpEmailSender:
         except Exception as exc:
             logger.error("SMTP send failed to %s: %s", to_email, exc, exc_info=True)
             return False
+
+    def _formatted_sender(self) -> str:
+        if not self.from_name:
+            return self.from_email
+        local, sep, domain = self.from_email.partition("@")
+        if not sep or not local or not domain:
+            return self.from_email
+        return str(Address(display_name=self.from_name, username=local, domain=domain))
+
+    def _message_id_domain(self) -> str:
+        _, sep, domain = self.from_email.partition("@")
+        if sep and domain:
+            return domain
+        return "localhost"
 
 
 class HttpTelegramNotifier:

@@ -14,6 +14,8 @@ def get_notification_facade() -> NotificationFacade:
             username=settings.smtp_user,
             password=settings.smtp_password,
             from_email=settings.smtp_from_email,
+            from_name=settings.smtp_from_name,
+            reply_to_email=settings.smtp_reply_to_email,
             use_tls=settings.smtp_use_tls,
             use_ssl=settings.smtp_use_ssl,
         ),
