@@ -1,15 +1,20 @@
 import asyncio
 import uuid
-from datetime import date
+from datetime import date, datetime
 from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
 
-from app.db.base import GameRole, RatingWinnerSide
+from app.db.base import GameRole, RatingGameSource, RatingWinnerSide
 from app.db.models import RatingGameResult
 from app.ratings.application import ratings as ratings_app
-from app.schemas.rating import RatingPatch, RatingSyncLobbyBody, RatingWrite
+from app.schemas.rating import (
+    RatingGameBestMovePatch,
+    RatingPatch,
+    RatingSyncLobbyBody,
+    RatingWrite,
+)
 
 
 def _game_result(
@@ -79,6 +84,16 @@ def test_count_correct_mafia_hits() -> None:
     assert ratings_app.count_correct_mafia_hits(["1", "3", ""], results) == 2
     assert ratings_app.count_correct_mafia_hits(["2", "", ""], results) == 0
     assert ratings_app.count_correct_mafia_hits(["", "", ""], results) == 0
+
+
+def test_count_correct_mafia_hits_ignores_duplicates_and_invalid() -> None:
+    results = [
+        _game_result(player_card_id=uuid.uuid4(), role=GameRole.MAFIA, sort_order=0),
+        _game_result(player_card_id=uuid.uuid4(), role=GameRole.PEACEFUL, sort_order=1),
+        _game_result(player_card_id=uuid.uuid4(), role=GameRole.DON, sort_order=2),
+    ]
+    # "1" duplicated should count once, non-numeric token should be ignored.
+    assert ratings_app.count_correct_mafia_hits(["1", "1", "abc"], results) == 1
 
 
 def test_rating_write_rejects_duplicate_player_cards() -> None:
@@ -511,3 +526,560 @@ def test_delete_rating_game_success() -> None:
     assert deleted is True
     assert session.deleted is game
     assert session.committed is True
+
+
+def test_remove_rating_participant_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _fake_get_owned_rating(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(ratings_app, "_get_owned_rating", _fake_get_owned_rating)
+    err, row = asyncio.run(
+        ratings_app.remove_rating_participant(
+            session=SimpleNamespace(),  # type: ignore[arg-type]
+            owner_user_id=uuid.uuid4(),
+            rating_id=uuid.uuid4(),
+            player_card_id=uuid.uuid4(),
+        )
+    )
+    assert err == "not_found"
+    assert row is None
+
+
+def test_remove_rating_participant_with_games_still_deletes(monkeypatch: pytest.MonkeyPatch) -> None:
+    player_id = uuid.uuid4()
+    participant = SimpleNamespace(player_card_id=player_id, sort_order=0)
+    fake_rating = SimpleNamespace(
+        id=uuid.uuid4(),
+        owner_user_id=uuid.uuid4(),
+        name="R",
+        event_date=date(2026, 8, 9),
+        created_at=datetime(2026, 8, 9),
+        updated_at=datetime(2026, 8, 9),
+        participants=[participant],
+        games=[
+            SimpleNamespace(
+                results=[SimpleNamespace(player_card_id=player_id)],
+            )
+        ],
+    )
+
+    async def _fake_get_owned_rating(*_args, **_kwargs):
+        return fake_rating
+
+    monkeypatch.setattr(ratings_app, "_get_owned_rating", _fake_get_owned_rating)
+
+    class _FakeSession:
+        def __init__(self):
+            self.committed = False
+
+        async def commit(self):
+            self.committed = True
+
+    session = _FakeSession()
+    err, row = asyncio.run(
+        ratings_app.remove_rating_participant(
+            session=session,  # type: ignore[arg-type]
+            owner_user_id=uuid.uuid4(),
+            rating_id=uuid.uuid4(),
+            player_card_id=player_id,
+        )
+    )
+    assert err is None
+    assert row is not None
+    assert session.committed is True
+    assert fake_rating.participants == []
+
+
+def test_remove_rating_participant_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    first_id = uuid.uuid4()
+    second_id = uuid.uuid4()
+    first = SimpleNamespace(
+        player_card_id=first_id,
+        sort_order=0,
+        player_card=SimpleNamespace(nickname="F", first_name="F", last_name="F", club=None),
+        id=uuid.uuid4(),
+    )
+    second = SimpleNamespace(
+        player_card_id=second_id,
+        sort_order=1,
+        player_card=SimpleNamespace(nickname="S", first_name="S", last_name="S", club=None),
+        id=uuid.uuid4(),
+    )
+    fake_rating = SimpleNamespace(
+        id=uuid.uuid4(),
+        owner_user_id=uuid.uuid4(),
+        name="R",
+        event_date=date(2026, 8, 9),
+        participants=[first, second],
+        games=[],
+        created_at=datetime(2026, 8, 9),
+        updated_at=datetime(2026, 8, 9),
+    )
+
+    calls = {"count": 0}
+
+    async def _fake_get_owned_rating(*_args, **_kwargs):
+        calls["count"] += 1
+        return fake_rating
+
+    monkeypatch.setattr(ratings_app, "_get_owned_rating", _fake_get_owned_rating)
+
+    class _FakeSession:
+        def __init__(self):
+            self.committed = False
+
+        async def commit(self):
+            self.committed = True
+
+    session = _FakeSession()
+    err, row = asyncio.run(
+        ratings_app.remove_rating_participant(
+            session=session,  # type: ignore[arg-type]
+            owner_user_id=fake_rating.owner_user_id,
+            rating_id=fake_rating.id,
+            player_card_id=first_id,
+        )
+    )
+    assert err is None
+    assert row is not None
+    assert session.committed is True
+    assert len(fake_rating.participants) == 1
+    assert fake_rating.participants[0].player_card_id == second_id
+    assert fake_rating.participants[0].sort_order == 0
+
+
+def test_update_rating_game_not_found() -> None:
+    class _ExecResult:
+        def scalar_one_or_none(self):
+            return None
+
+    class _FakeSession:
+        async def execute(self, _stmt):
+            return _ExecResult()
+
+    err, row = asyncio.run(
+        ratings_app.update_rating_game(
+            session=_FakeSession(),  # type: ignore[arg-type]
+            owner_user_id=uuid.uuid4(),
+            rating_id=uuid.uuid4(),
+            game_id=uuid.uuid4(),
+            body=ratings_app.RatingGamePatch(title="Новая игра"),
+        )
+    )
+    assert err == "not_found"
+    assert row is None
+
+
+def test_update_rating_game_rejects_player_outside_rating() -> None:
+    in_rating_id = uuid.uuid4()
+    out_of_rating_id = uuid.uuid4()
+
+    game = SimpleNamespace(
+        id=uuid.uuid4(),
+        rating_id=uuid.uuid4(),
+        title="Старая игра",
+        played_at=date(2026, 8, 1),
+        winner_side=RatingWinnerSide.RED,
+        source=RatingGameSource.MANUAL,
+        lobby_id=None,
+        created_at=datetime(2026, 8, 1),
+        rating=SimpleNamespace(
+            participants=[
+                SimpleNamespace(
+                    player_card_id=in_rating_id,
+                    player_card=SimpleNamespace(
+                        nickname="A",
+                        first_name="A",
+                        last_name="A",
+                    ),
+                )
+            ]
+        ),
+        results=[
+            SimpleNamespace(
+                player_card_id=in_rating_id,
+                role=GameRole.PEACEFUL,
+                bonus_points=0.0,
+                total_points=1.0,
+                best_move=["", "", ""],
+                player_card=SimpleNamespace(
+                    nickname="A",
+                    first_name="A",
+                    last_name="A",
+                ),
+            )
+        ],
+    )
+
+    class _ExecResult:
+        def scalar_one_or_none(self):
+            return game
+
+    class _FakeSession:
+        def __init__(self):
+            self.committed = False
+
+        async def execute(self, _stmt):
+            return _ExecResult()
+
+        async def commit(self):
+            self.committed = True
+
+    session = _FakeSession()
+    err, row = asyncio.run(
+        ratings_app.update_rating_game(
+            session=session,  # type: ignore[arg-type]
+            owner_user_id=uuid.uuid4(),
+            rating_id=uuid.uuid4(),
+            game_id=game.id,
+            body=ratings_app.RatingGamePatch(
+                results=[
+                    {
+                        "player_card_id": out_of_rating_id,
+                        "role": GameRole.MAFIA,
+                        "bonus_points": 0.0,
+                        "total_points": 1.0,
+                    }
+                ]
+            ),
+        )
+    )
+    assert err == "player_not_in_rating"
+    assert row is None
+    assert session.committed is False
+
+
+def test_update_rating_game_success() -> None:
+    first_id = uuid.uuid4()
+    second_id = uuid.uuid4()
+    played_at = date(2026, 8, 10)
+
+    game = SimpleNamespace(
+        id=uuid.uuid4(),
+        rating_id=uuid.uuid4(),
+        title="Старая игра",
+        played_at=date(2026, 8, 1),
+        winner_side=RatingWinnerSide.RED,
+        source=RatingGameSource.MANUAL,
+        lobby_id=None,
+        created_at=datetime(2026, 8, 1),
+        rating=SimpleNamespace(
+            participants=[
+                SimpleNamespace(
+                    player_card_id=first_id,
+                    player_card=SimpleNamespace(
+                        nickname="First",
+                        first_name="F",
+                        last_name="I",
+                    ),
+                ),
+                SimpleNamespace(
+                    player_card_id=second_id,
+                    player_card=SimpleNamespace(
+                        nickname="Second",
+                        first_name="S",
+                        last_name="E",
+                    ),
+                ),
+            ]
+        ),
+        results=[
+            SimpleNamespace(
+                player_card_id=first_id,
+                role=GameRole.PEACEFUL,
+                bonus_points=0.0,
+                total_points=1.0,
+                best_move=["", "", ""],
+                player_card=SimpleNamespace(
+                    nickname="First",
+                    first_name="F",
+                    last_name="I",
+                ),
+            )
+        ],
+    )
+
+    loaded_game = SimpleNamespace(
+        id=game.id,
+        rating_id=game.rating_id,
+        title="Новая игра",
+        played_at=played_at,
+        winner_side=RatingWinnerSide.BLACK,
+        source=RatingGameSource.MANUAL,
+        lobby_id=None,
+        created_at=datetime(2026, 8, 1),
+        results=[
+            SimpleNamespace(
+                player_card_id=first_id,
+                role=GameRole.MAFIA,
+                bonus_points=0.5,
+                total_points=1.5,
+                best_move=["1", "", ""],
+                player_card=SimpleNamespace(
+                    nickname="First",
+                    first_name="F",
+                    last_name="I",
+                ),
+            ),
+            SimpleNamespace(
+                player_card_id=second_id,
+                role=GameRole.DON,
+                bonus_points=0.0,
+                total_points=1.0,
+                best_move=["", "", ""],
+                player_card=SimpleNamespace(
+                    nickname="Second",
+                    first_name="S",
+                    last_name="E",
+                ),
+            ),
+        ],
+    )
+
+    class _ExecResult:
+        def __init__(self, one_or_none=None, one=None):
+            self._one_or_none = one_or_none
+            self._one = one
+
+        def scalar_one_or_none(self):
+            return self._one_or_none
+
+        def scalar_one(self):
+            return self._one
+
+    class _FakeSession:
+        def __init__(self):
+            self.committed = False
+            self.calls = 0
+
+        async def execute(self, _stmt):
+            self.calls += 1
+            if self.calls == 1:
+                return _ExecResult(one_or_none=game)
+            return _ExecResult(one=loaded_game)
+
+        async def commit(self):
+            self.committed = True
+
+    session = _FakeSession()
+    err, row = asyncio.run(
+        ratings_app.update_rating_game(
+            session=session,  # type: ignore[arg-type]
+            owner_user_id=uuid.uuid4(),
+            rating_id=uuid.uuid4(),
+            game_id=game.id,
+            body=ratings_app.RatingGamePatch(
+                title="Новая игра",
+                played_at=played_at,
+                winner_side=RatingWinnerSide.BLACK,
+                results=[
+                    {
+                        "player_card_id": first_id,
+                        "role": GameRole.MAFIA,
+                        "bonus_points": 0.5,
+                        "total_points": 1.5,
+                        "best_move": ["1", "", ""],
+                    },
+                    {
+                        "player_card_id": second_id,
+                        "role": GameRole.DON,
+                        "bonus_points": 0.0,
+                        "total_points": 1.0,
+                        "best_move": ["", "", ""],
+                    },
+                ],
+            ),
+        )
+    )
+    assert err is None
+    assert row is not None
+    assert session.committed is True
+    assert game.title == "Новая игра"
+    assert game.played_at == played_at
+    assert game.winner_side == RatingWinnerSide.BLACK
+    assert len(game.results) == 2
+    assert game.results[0].role == GameRole.MAFIA
+    assert game.results[0].best_move == ["1", "", ""]
+    assert game.results[1].role == GameRole.DON
+    assert row.title == "Новая игра"
+    assert len(row.results) == 2
+
+
+def test_rating_game_best_move_patch_normalizes_values() -> None:
+    player_id = uuid.uuid4()
+    body = RatingGameBestMovePatch(
+        results=[
+            {
+                "player_card_id": player_id,
+                "best_move": [" 1 ", "  ", "3", "ignored"],
+            }
+        ]
+    )
+    assert body.results[0].best_move == ["1", "", "3"]
+
+
+def test_rating_game_best_move_patch_sanitizes_invalid_and_duplicates() -> None:
+    player_id = uuid.uuid4()
+    body = RatingGameBestMovePatch(
+        results=[
+            {
+                "player_card_id": player_id,
+                "best_move": [" 2 ", "2", "x", "0", "-1", "5"],
+            }
+        ]
+    )
+    assert body.results[0].best_move == ["2", "", ""]
+
+
+def test_rating_game_best_move_patch_rejects_duplicate_players() -> None:
+    player_id = uuid.uuid4()
+    with pytest.raises(ValidationError):
+        RatingGameBestMovePatch(
+            results=[
+                {"player_card_id": player_id, "best_move": ["1", "", ""]},
+                {"player_card_id": player_id, "best_move": ["2", "", ""]},
+            ]
+        )
+
+
+def test_update_rating_game_best_move_not_found() -> None:
+    class _ExecResult:
+        def scalar_one_or_none(self):
+            return None
+
+    class _FakeSession:
+        async def execute(self, _stmt):
+            return _ExecResult()
+
+    err, row = asyncio.run(
+        ratings_app.update_rating_game_best_move(
+            session=_FakeSession(),  # type: ignore[arg-type]
+            owner_user_id=uuid.uuid4(),
+            rating_id=uuid.uuid4(),
+            game_id=uuid.uuid4(),
+            body=RatingGameBestMovePatch(
+                results=[{"player_card_id": uuid.uuid4(), "best_move": ["1", "", ""]}]
+            ),
+        )
+    )
+    assert err == "not_found"
+    assert row is None
+
+
+def test_update_rating_game_best_move_player_not_in_game() -> None:
+    player_id = uuid.uuid4()
+    missing_player_id = uuid.uuid4()
+    game = SimpleNamespace(
+        id=uuid.uuid4(),
+        rating_id=uuid.uuid4(),
+        title="Игра",
+        played_at=date(2026, 8, 1),
+        winner_side=RatingWinnerSide.RED,
+        source=RatingGameSource.MANUAL,
+        lobby_id=None,
+        created_at=datetime(2026, 8, 1),
+        results=[
+            SimpleNamespace(
+                player_card_id=player_id,
+                role=GameRole.PEACEFUL,
+                bonus_points=0.0,
+                total_points=1.0,
+                best_move=["", "", ""],
+                player_card=SimpleNamespace(
+                    nickname="Player",
+                    first_name="P",
+                    last_name="L",
+                ),
+            )
+        ],
+    )
+
+    class _ExecResult:
+        def scalar_one_or_none(self):
+            return game
+
+    class _FakeSession:
+        def __init__(self):
+            self.committed = False
+
+        async def execute(self, _stmt):
+            return _ExecResult()
+
+        async def commit(self):
+            self.committed = True
+
+    session = _FakeSession()
+    err, row = asyncio.run(
+        ratings_app.update_rating_game_best_move(
+            session=session,  # type: ignore[arg-type]
+            owner_user_id=uuid.uuid4(),
+            rating_id=uuid.uuid4(),
+            game_id=game.id,
+            body=RatingGameBestMovePatch(
+                results=[{"player_card_id": missing_player_id, "best_move": ["2", "", ""]}]
+            ),
+        )
+    )
+    assert err == "player_not_in_game"
+    assert row is None
+    assert session.committed is False
+
+
+def test_update_rating_game_best_move_success() -> None:
+    player_id = uuid.uuid4()
+    game = SimpleNamespace(
+        id=uuid.uuid4(),
+        rating_id=uuid.uuid4(),
+        title="Игра",
+        played_at=date(2026, 8, 1),
+        winner_side=RatingWinnerSide.BLACK,
+        source=RatingGameSource.MANUAL,
+        lobby_id=None,
+        created_at=datetime(2026, 8, 1),
+        results=[
+            SimpleNamespace(
+                player_card_id=player_id,
+                role=GameRole.SHERIFF,
+                bonus_points=0.5,
+                total_points=1.5,
+                best_move=["", "", ""],
+                player_card=SimpleNamespace(
+                    nickname="Sheriff",
+                    first_name="S",
+                    last_name="H",
+                ),
+            )
+        ],
+    )
+
+    class _ExecResult:
+        def scalar_one_or_none(self):
+            return game
+
+    class _FakeSession:
+        def __init__(self):
+            self.committed = False
+
+        async def execute(self, _stmt):
+            return _ExecResult()
+
+        async def commit(self):
+            self.committed = True
+
+    session = _FakeSession()
+    err, row = asyncio.run(
+        ratings_app.update_rating_game_best_move(
+            session=session,  # type: ignore[arg-type]
+            owner_user_id=uuid.uuid4(),
+            rating_id=uuid.uuid4(),
+            game_id=game.id,
+            body=RatingGameBestMovePatch(
+                results=[{"player_card_id": player_id, "best_move": [" 4 ", "1", " "]}]
+            ),
+        )
+    )
+    assert err is None
+    assert row is not None
+    assert session.committed is True
+    assert game.results[0].best_move == ["4", "1", ""]
+    assert row.results[0].best_move == ["4", "1", ""]

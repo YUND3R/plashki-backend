@@ -14,14 +14,19 @@ from app.ratings.application.ratings import (
     delete_rating_game,
     get_rating_game,
     list_rating_games,
+    remove_rating_participant,
     get_rating,
     get_rating_table,
     list_ratings,
     sync_rating_from_lobby,
+    update_rating_game,
+    update_rating_game_best_move,
     update_rating,
 )
 from app.schemas.rating import (
     RatingAddParticipantsBody,
+    RatingGameBestMovePatch,
+    RatingGamePatch,
     RatingGamePublic,
     RatingGameListResponse,
     RatingGameWrite,
@@ -189,6 +194,31 @@ async def post_rating_participants(
     return row
 
 
+@router.delete(
+    "/{rating_id}/participants/{player_card_id}",
+    response_model=RatingPublic,
+    summary="Удалить игрока из рейтинга",
+)
+async def delete_rating_participant(
+    rating_id: uuid.UUID,
+    player_card_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    current_user_id: uuid.UUID = Depends(get_current_user_id),
+) -> RatingPublic:
+    err, row = await remove_rating_participant(
+        session,
+        current_user_id,
+        rating_id,
+        player_card_id,
+    )
+    if err == "not_found":
+        raise HTTPException(status_code=404, detail="Рейтинг не найден")
+    if err == "participant_not_found":
+        raise HTTPException(status_code=404, detail="Игрок не найден в рейтинге")
+    assert row is not None
+    return row
+
+
 @router.post(
     "/{rating_id}/games",
     response_model=RatingGamePublic,
@@ -211,6 +241,80 @@ async def post_rating_game(
             status_code=422,
             detail="Один или несколько игроков не входят в этот рейтинг.",
         )
+    if err == "duplicate_player_in_game":
+        raise HTTPException(
+            status_code=422,
+            detail="Один и тот же игрок не может быть указан в игре дважды.",
+        )
+    assert row is not None
+    return row
+
+
+@router.patch(
+    "/{rating_id}/games/{game_id}",
+    response_model=RatingGamePublic,
+    summary="Обновить игру рейтинга",
+    description=(
+        "Обновляет поля игры (название, дату, победителя) и при передаче results "
+        "полностью заменяет список результатов игроков."
+    ),
+)
+async def patch_rating_game(
+    rating_id: uuid.UUID,
+    game_id: uuid.UUID,
+    body: RatingGamePatch,
+    session: AsyncSession = Depends(get_session),
+    current_user_id: uuid.UUID = Depends(get_current_user_id),
+) -> RatingGamePublic:
+    err, row = await update_rating_game(
+        session,
+        current_user_id,
+        rating_id,
+        game_id,
+        body,
+    )
+    if err == "not_found":
+        raise HTTPException(status_code=404, detail="Игра рейтинга не найдена")
+    if err == "player_not_in_rating":
+        raise HTTPException(
+            status_code=422,
+            detail="Один или несколько игроков не входят в этот рейтинг.",
+        )
+    if err == "duplicate_player_in_game":
+        raise HTTPException(
+            status_code=422,
+            detail="Один и тот же игрок не может быть указан в игре дважды.",
+        )
+    assert row is not None
+    return row
+
+
+@router.patch(
+    "/{rating_id}/games/{game_id}/best-move",
+    response_model=RatingGamePublic,
+    summary="Обновить ЛХ в игре рейтинга",
+    description=(
+        "Обновляет ЛХ (массив мест) для одного или нескольких игроков в выбранной игре."
+    ),
+)
+async def patch_rating_game_best_move(
+    rating_id: uuid.UUID,
+    game_id: uuid.UUID,
+    body: RatingGameBestMovePatch,
+    session: AsyncSession = Depends(get_session),
+    current_user_id: uuid.UUID = Depends(get_current_user_id),
+) -> RatingGamePublic:
+    err, row = await update_rating_game_best_move(
+        session,
+        current_user_id,
+        rating_id,
+        game_id,
+        body,
+    )
+    if err == "not_found":
+        raise HTTPException(status_code=404, detail="Игра рейтинга не найдена")
+    if err == "player_not_in_game":
+        raise HTTPException(status_code=422, detail="Один или несколько игроков не входят в эту игру.")
     assert row is not None
     return row
 

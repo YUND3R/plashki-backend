@@ -7,6 +7,33 @@ from app.db.base import GameRole, RatingGameSource, RatingWinnerSide
 from app.schemas.public_media import PublicMediaResponseMixin
 
 
+def _normalize_best_move_values(value: list[str]) -> list[str]:
+    values = value[:3]
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in values:
+        token = (item or "").strip()
+        if not token:
+            normalized.append("")
+            continue
+        try:
+            seat_num = int(token)
+        except ValueError:
+            normalized.append("")
+            continue
+        if seat_num < 1:
+            normalized.append("")
+            continue
+        seat = str(seat_num)
+        if seat in seen:
+            normalized.append("")
+            continue
+        seen.add(seat)
+        normalized.append(seat)
+    normalized.extend([""] * (3 - len(normalized)))
+    return normalized
+
+
 class RatingWrite(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     event_date: date
@@ -88,9 +115,7 @@ class RatingGameResultWrite(BaseModel):
     @field_validator("best_move")
     @classmethod
     def normalize_best_move(cls, value: list[str]) -> list[str]:
-        normalized = [(item or "").strip() for item in value[:3]]
-        normalized.extend([""] * (3 - len(normalized)))
-        return normalized
+        return _normalize_best_move_values(value)
 
 
 class RatingGameWrite(BaseModel):
@@ -110,6 +135,54 @@ class RatingGameWrite(BaseModel):
         ids = [entry.player_card_id for entry in value]
         if len(ids) != len(set(ids)):
             raise ValueError("Игрок не может быть указан в одной игре дважды")
+        return value
+
+
+class RatingGamePatch(BaseModel):
+    title: str | None = Field(default=None, max_length=255)
+    played_at: date | None = None
+    winner_side: RatingWinnerSide | None = None
+    results: list[RatingGameResultWrite] | None = Field(default=None, min_length=1)
+
+    @field_validator("title")
+    @classmethod
+    def strip_title(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip()
+
+    @field_validator("results")
+    @classmethod
+    def unique_players(
+        cls, value: list[RatingGameResultWrite] | None
+    ) -> list[RatingGameResultWrite] | None:
+        if value is None:
+            return None
+        ids = [entry.player_card_id for entry in value]
+        if len(ids) != len(set(ids)):
+            raise ValueError("Игрок не может быть указан в одной игре дважды")
+        return value
+
+
+class RatingGameBestMoveEntry(BaseModel):
+    player_card_id: uuid.UUID
+    best_move: list[str] = Field(default_factory=lambda: ["", "", ""])
+
+    @field_validator("best_move")
+    @classmethod
+    def normalize_best_move(cls, value: list[str]) -> list[str]:
+        return _normalize_best_move_values(value)
+
+
+class RatingGameBestMovePatch(BaseModel):
+    results: list[RatingGameBestMoveEntry] = Field(min_length=1)
+
+    @field_validator("results")
+    @classmethod
+    def unique_players(cls, value: list[RatingGameBestMoveEntry]) -> list[RatingGameBestMoveEntry]:
+        ids = [entry.player_card_id for entry in value]
+        if len(ids) != len(set(ids)):
+            raise ValueError("Игрок не может быть указан в ЛХ дважды")
         return value
 
 

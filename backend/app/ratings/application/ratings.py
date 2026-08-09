@@ -17,10 +17,13 @@ from app.db.models import (
 )
 from app.schemas.rating import (
     RatingAddParticipantsBody,
+    RatingGameBestMovePatch,
+    RatingGamePatch,
     RatingGameListItem,
     RatingGameListResponse,
     RatingGamePublic,
     RatingGameResultPublic,
+    RatingGameResultWrite,
     RatingSyncLobbyBody,
     RatingGameWrite,
     RatingListItem,
@@ -39,7 +42,27 @@ _MIN_GAMES_FOR_ROLE_AWARD = 3
 
 def normalize_best_move(raw: list[str] | None) -> list[str]:
     values = (raw or [])[:3]
-    normalized = [(value or "").strip() for value in values]
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        token = (value or "").strip()
+        if not token:
+            normalized.append("")
+            continue
+        try:
+            seat_num = int(token)
+        except ValueError:
+            normalized.append("")
+            continue
+        if seat_num < 1:
+            normalized.append("")
+            continue
+        seat = str(seat_num)
+        if seat in seen:
+            normalized.append("")
+            continue
+        seen.add(seat)
+        normalized.append(seat)
     normalized.extend([""] * (3 - len(normalized)))
     return normalized
 
@@ -54,6 +77,7 @@ def _seat_role_map(game_results) -> dict[int, GameRole]:
 def count_correct_mafia_hits(best_move: list[str] | None, game_results) -> int:
     seat_roles = _seat_role_map(game_results)
     hits = 0
+    seen_seats: set[int] = set()
     for value in normalize_best_move(best_move):
         if not value:
             continue
@@ -63,6 +87,9 @@ def count_correct_mafia_hits(best_move: list[str] | None, game_results) -> int:
             continue
         if seat_num < 1:
             continue
+        if seat_num in seen_seats:
+            continue
+        seen_seats.add(seat_num)
         if seat_roles.get(seat_num) in _BLACK_ROLES:
             hits += 1
     return hits
@@ -338,6 +365,43 @@ async def delete_rating_game(
     return None, True
 
 
+async def update_rating_game_best_move(
+    session: AsyncSession,
+    owner_user_id: uuid.UUID,
+    rating_id: uuid.UUID,
+    game_id: uuid.UUID,
+    body: RatingGameBestMovePatch,
+) -> tuple[str | None, RatingGamePublic | None]:
+    game = (
+        await session.execute(
+            select(RatingGame)
+            .join(Rating, Rating.id == RatingGame.rating_id)
+            .where(
+                RatingGame.id == game_id,
+                RatingGame.rating_id == rating_id,
+                Rating.owner_user_id == owner_user_id,
+            )
+            .options(
+                selectinload(RatingGame.results).selectinload(RatingGameResult.player_card),
+            )
+        )
+    ).scalar_one_or_none()
+    if game is None:
+        return "not_found", None
+
+    by_player_card_id = {
+        result.player_card_id: result for result in game.results
+    }
+    for item in body.results:
+        result = by_player_card_id.get(item.player_card_id)
+        if result is None:
+            return "player_not_in_game", None
+        result.best_move = normalize_best_move(item.best_move)
+
+    await session.commit()
+    return None, _game_public(game)
+
+
 async def _replace_participants(
     session: AsyncSession,
     rating: Rating,
@@ -458,6 +522,33 @@ async def add_rating_participants(
     return None, _rating_public(loaded)
 
 
+async def remove_rating_participant(
+    session: AsyncSession,
+    owner_user_id: uuid.UUID,
+    rating_id: uuid.UUID,
+    player_card_id: uuid.UUID,
+) -> tuple[str | None, RatingPublic | None]:
+    row = await _get_owned_rating(session, owner_user_id, rating_id)
+    if row is None:
+        return "not_found", None
+
+    target = next(
+        (participant for participant in row.participants if participant.player_card_id == player_card_id),
+        None,
+    )
+    if target is None:
+        return "participant_not_found", None
+
+    row.participants.remove(target)
+    for index, participant in enumerate(row.participants):
+        participant.sort_order = index
+
+    await session.commit()
+    loaded = await _get_owned_rating(session, owner_user_id, rating_id)
+    assert loaded is not None
+    return None, _rating_public(loaded)
+
+
 async def create_rating_game(
     session: AsyncSession,
     owner_user_id: uuid.UUID,
@@ -467,6 +558,9 @@ async def create_rating_game(
     row = await _get_owned_rating(session, owner_user_id, rating_id)
     if row is None:
         return "not_found", None
+    result_player_ids = [result.player_card_id for result in body.results]
+    if len(result_player_ids) != len(set(result_player_ids)):
+        return "duplicate_player_in_game", None
     participant_ids = {p.player_card_id for p in row.participants}
     for result in body.results:
         if result.player_card_id not in participant_ids:
@@ -494,6 +588,76 @@ async def create_rating_game(
                 sort_order=index,
             )
         )
+    await session.commit()
+    loaded = (
+        await session.execute(
+            select(RatingGame)
+            .where(RatingGame.id == game.id)
+            .options(
+                selectinload(RatingGame.results).selectinload(RatingGameResult.player_card),
+            )
+        )
+    ).scalar_one()
+    return None, _game_public(loaded)
+
+
+async def update_rating_game(
+    session: AsyncSession,
+    owner_user_id: uuid.UUID,
+    rating_id: uuid.UUID,
+    game_id: uuid.UUID,
+    body: RatingGamePatch,
+) -> tuple[str | None, RatingGamePublic | None]:
+    game = (
+        await session.execute(
+            select(RatingGame)
+            .join(Rating, Rating.id == RatingGame.rating_id)
+            .where(
+                RatingGame.id == game_id,
+                RatingGame.rating_id == rating_id,
+                Rating.owner_user_id == owner_user_id,
+            )
+            .options(
+                selectinload(RatingGame.results).selectinload(RatingGameResult.player_card),
+                selectinload(RatingGame.rating)
+                .selectinload(Rating.participants)
+                .selectinload(RatingParticipant.player_card),
+            )
+        )
+    ).scalar_one_or_none()
+    if game is None:
+        return "not_found", None
+
+    payload = body.model_dump(exclude_unset=True, exclude={"results"})
+    if "title" in payload:
+        game.title = payload["title"]
+    if "played_at" in payload:
+        game.played_at = payload["played_at"]
+    if "winner_side" in payload:
+        game.winner_side = payload["winner_side"]
+
+    if "results" in body.model_fields_set and body.results is not None:
+        results: list[RatingGameResultWrite] = body.results
+        result_player_ids = [result.player_card_id for result in results]
+        if len(result_player_ids) != len(set(result_player_ids)):
+            return "duplicate_player_in_game", None
+        participant_ids = {participant.player_card_id for participant in game.rating.participants}
+        if any(result.player_card_id not in participant_ids for result in results):
+            return "player_not_in_rating", None
+
+        game.results.clear()
+        for index, result in enumerate(results):
+            game.results.append(
+                RatingGameResult(
+                    player_card_id=result.player_card_id,
+                    role=result.role,
+                    bonus_points=result.bonus_points,
+                    total_points=result.total_points,
+                    best_move=normalize_best_move(result.best_move),
+                    sort_order=index,
+                )
+            )
+
     await session.commit()
     loaded = (
         await session.execute(
