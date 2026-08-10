@@ -93,6 +93,10 @@ class UserProfile(Base):
         back_populates="user",
         cascade="all, delete-orphan",
     )
+    email_change_tokens: Mapped[list["EmailChangeToken"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
     feedback_messages: Mapped[list["FeedbackMessage"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
@@ -617,6 +621,32 @@ class EmailVerificationToken(Base):
     pending_registration: Mapped["PendingRegistration | None"] = relationship(
         back_populates="verification_tokens"
     )
+
+
+class EmailChangeToken(Base):
+    __tablename__ = "email_change_token"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("user_profile.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    new_email: Mapped[str] = mapped_column(String(55), index=True, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    user: Mapped["UserProfile"] = relationship(back_populates="email_change_tokens")
 
 
 class FeedbackMessage(Base):

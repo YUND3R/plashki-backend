@@ -16,8 +16,8 @@ from app.core.link_signing import (
 from app.db.base import Role, Subscription
 from app.db.models import EmailVerificationToken, PendingRegistration, UserProfile
 
-MAX_VERIFICATION_EMAILS = 5
-VERIFICATION_EMAIL_COOLDOWN = timedelta(minutes=3)
+MAX_VERIFICATION_EMAILS = 3
+VERIFICATION_EMAIL_COOLDOWN = timedelta(minutes=10)
 
 
 def _hash_secret(raw: str) -> str:

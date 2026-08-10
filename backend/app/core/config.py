@@ -99,10 +99,16 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("RESET_TOKEN_TTL_MINUTES"),
     )
     email_verification_token_ttl_minutes: int = Field(
-        default=60 * 24,
-        ge=30,
+        default=10,
+        ge=5,
         le=60 * 24 * 14,
         validation_alias=AliasChoices("EMAIL_VERIFICATION_TOKEN_TTL_MINUTES"),
+    )
+    email_change_token_ttl_minutes: int = Field(
+        default=10,
+        ge=5,
+        le=180,
+        validation_alias=AliasChoices("EMAIL_CHANGE_TOKEN_TTL_MINUTES"),
     )
     smtp_host: str = Field(default="", validation_alias=AliasChoices("SMTP_HOST"))
     smtp_port: int = Field(default=587, ge=1, le=65535, validation_alias=AliasChoices("SMTP_PORT"))
@@ -203,17 +209,17 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
-    def validate_production_auth_links(self) -> "Settings":
-        if self.environment != "production":
+    def validate_deployed_auth_links(self) -> "Settings":
+        if self.environment == "local":
             return self
         if not self.frontend_verify_email_url.strip():
             raise ValueError(
-                "FRONTEND_VERIFY_EMAIL_URL обязателен в production, "
+                "FRONTEND_VERIFY_EMAIL_URL обязателен вне local, "
                 "чтобы не передавать секреты подтверждения email в URL API."
             )
         if not self.frontend_reset_password_url.strip():
             raise ValueError(
-                "FRONTEND_RESET_PASSWORD_URL обязателен в production, "
+                "FRONTEND_RESET_PASSWORD_URL обязателен вне local, "
                 "чтобы не передавать секреты сброса пароля в URL API."
             )
         return self

@@ -12,6 +12,8 @@ def _deployed_settings(**values) -> Settings:
         "DATABASE_URL": "postgresql+asyncpg://plashki:plashki@db:5432/plashki",
         "CORS_ORIGINS": "https://plash-ki.ru",
         "JWT_SECRET_KEY": "x" * 32,
+        "FRONTEND_VERIFY_EMAIL_URL": "https://plash-ki.ru/verify-email",
+        "FRONTEND_RESET_PASSWORD_URL": "https://plash-ki.ru/reset-password",
     }
     defaults.update(values)
     return Settings(**defaults)

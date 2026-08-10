@@ -61,11 +61,18 @@ async def register_user(
     if conflict == "email":
         return "email", None, ""
 
-    # Старые pending для этих же username/email удаляем, чтобы уникальные индексы не блокировали повторную регистрацию.
+    # Удаляем только истёкшие/использованные pending. Активную регистрацию сохраняем,
+    # чтобы повторный POST не мог обходить лимит отправки verification-писем.
     await session.execute(
         delete(PendingRegistration).where(
-            (PendingRegistration.username == username)
-            | (func.lower(PendingRegistration.email) == email.lower())
+            (
+                (PendingRegistration.username == username)
+                | (func.lower(PendingRegistration.email) == email.lower())
+            )
+            & (
+                (PendingRegistration.consumed_at.is_not(None))
+                | (PendingRegistration.expires_at <= datetime.now(UTC))
+            )
         )
     )
 

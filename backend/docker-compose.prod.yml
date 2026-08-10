@@ -42,7 +42,7 @@ services:
     volumes:
       - uploads_data:/app/uploads
     ports:
-      - "${API_PORT:-8000}:8000"
+      - "127.0.0.1:${API_PORT:-8000}:8000"
 
 volumes:
   pgdata:

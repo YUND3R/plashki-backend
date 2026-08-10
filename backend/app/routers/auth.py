@@ -35,6 +35,8 @@ from app.notifications.email_templates import (
 from app.notifications.providers import get_notification_facade
 from app.schemas.auth import (
     AuthSessionResponse,
+    ChangeEmailConfirmBody,
+    ChangeEmailRequestBody,
     ForgotPasswordBody,
     LoginBody,
     MessageResponse,
@@ -47,6 +49,7 @@ from app.services import auth_login as auth_login_service
 from app.services import email_verification as email_verification_service
 from app.services import password_reset as password_reset_service
 from app.services import auth_register as auth_register_service
+from app.services import email_change as email_change_service
 from app.services.password_reset_links import build_password_reset_link
 from app.services.email_verification_links import build_email_verification_link
 from app.services.photo_storage import remove_stored_file_if_ours, save_image_upload
@@ -238,19 +241,19 @@ async def register(
     if err == "username":
         raise HTTPException(
             status_code=409,
-            detail="Пользователь с таким логином уже есть.",
+            detail="Логин или email уже заняты.",
         )
     if err == "email":
         raise HTTPException(
             status_code=409,
-            detail="Пользователь с таким email уже есть.",
+            detail="Логин или email уже заняты.",
         )
     if err == "integrity" or pending is None:
         msg = (
             "Не удалось создать пользователя: конфликт в БД "
             "(часто параллельная регистрация). Попробуйте другой логин/email."
         )
-        if settings.environment != "production" and pg_hint:
+        if settings.environment == "local" and pg_hint:
             msg = f"{msg} Технически: {pg_hint[:500]}"
         raise HTTPException(status_code=409, detail=msg)
 
@@ -322,11 +325,8 @@ async def login(
         )
     if user.email_verified_at is None:
         raise HTTPException(
-            status_code=403,
-            detail=(
-                "Сначала подтвердите email — письмо отправлено при регистрации. "
-                "Можно запросить повтор: POST /auth/resend-verification."
-            ),
+            status_code=401,
+            detail="Неверный логин или пароль",
         )
     return _issue_auth_session(response, user)
 
@@ -442,6 +442,59 @@ async def logout(
     return MessageResponse(message="Вы успешно вышли из аккаунта.")
 
 
+@router.post("/change-email/request", response_model=MessageResponse)
+async def request_email_change(
+    body: ChangeEmailRequestBody,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    user_id: uuid.UUID = Depends(get_current_user_id),
+) -> MessageResponse:
+    status, pair, old_email = await email_change_service.start_email_change(
+        session,
+        user_id=user_id,
+        new_email=body.new_email,
+        current_password=body.current_password,
+    )
+    if status == "invalid_credentials":
+        raise HTTPException(status_code=403, detail="Не удалось подтвердить смену email.")
+    if status in {"invalid_email", "unavailable"} or pair is None:
+        return MessageResponse(message="Если адрес доступен, письмо с подтверждением отправлено.")
+
+    token_id, signature = pair
+    frontend = settings.frontend_verify_email_url.strip().rstrip("/")
+    if not frontend:
+        raise HTTPException(status_code=503, detail="Смена email временно недоступна.")
+    confirm_url = f"{frontend}#change_email_token={token_id}&sig={signature}"
+    sent = alert_service.send_email(
+        to_email=body.new_email.strip().lower(),
+        subject="Подтверждение нового email — Plashki",
+        body=f"Подтвердите новый email: {confirm_url}",
+    )
+    if old_email:
+        alert_service.send_email(
+            to_email=old_email,
+            subject="Запрос на смену email — Plashki",
+            body="Для вашего аккаунта запрошена смена email. Если это были не вы, смените пароль.",
+        )
+    if not sent:
+        alert_service.send_warning("Email change confirmation was not sent", f"user_id={user_id}")
+    return MessageResponse(message="Если адрес доступен, письмо с подтверждением отправлено.")
+
+
+@router.post("/change-email/confirm", response_model=MessageResponse)
+async def confirm_email_change(
+    body: ChangeEmailConfirmBody,
+    session: AsyncSession = Depends(get_session),
+    _origin: None = Depends(require_trusted_origin),
+) -> MessageResponse:
+    status, _user = await email_change_service.confirm_email_change(
+        session, token_id=body.token_id, signature=body.signature
+    )
+    if status != "ok":
+        raise HTTPException(status_code=400, detail="Неверная, просроченная или недоступная ссылка.")
+    return MessageResponse(message="Email изменён. Войдите в аккаунт снова.")
+
+
 @router.post(
     "/resend-verification",
     response_model=MessageResponse,
@@ -456,14 +509,10 @@ async def resend_verification(
     body: ForgotPasswordBody,
     session: AsyncSession = Depends(get_session),
 ) -> MessageResponse:
-    to_email, pair, reason, username = await email_verification_service.create_verification_token_for_email(
+    to_email, pair, _reason, username = await email_verification_service.create_verification_token_for_email(
         session, email=body.email
     )
     if to_email is None or pair is None:
-        if reason in {"cooldown", "limit"}:
-            return MessageResponse(
-                message="Если аккаунт существует и email не подтверждён, письмо уже отправлялось. Повторите позже."
-            )
         return MessageResponse(
             message="Если аккаунт существует и email не подтверждён, письмо отправлено."
         )

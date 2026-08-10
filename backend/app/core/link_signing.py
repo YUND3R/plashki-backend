@@ -14,9 +14,9 @@ def _signing_key() -> bytes:
     raw = settings.jwt_secret_key.strip()
     if raw:
         return raw.encode("utf-8")
-    if settings.environment in ("local", "development"):
-        return b"local-unsigned-dev-only-change-JWT_SECRET_KEY"
-    raise RuntimeError("JWT_SECRET_KEY обязателен для подписи ссылок (кроме ENVIRONMENT=local/development)")
+    if settings.environment == "local":
+        return b"local-only-plashki-jwt-secret-min-32-chars!!"
+    raise RuntimeError("JWT_SECRET_KEY обязателен для подписи ссылок вне local")
 
 
 def _exp_ts(expires_at: datetime) -> int:
@@ -45,6 +45,11 @@ def sign_password_reset(token_id: uuid.UUID, user_id: uuid.UUID, expires_at: dat
     return hmac.new(_signing_key(), msg, hashlib.sha256).hexdigest()
 
 
+def sign_email_change(token_id: uuid.UUID, user_id: uuid.UUID, expires_at: datetime) -> str:
+    msg = f"ec:{token_id}:{user_id}:{_exp_ts(expires_at)}".encode("ascii")
+    return hmac.new(_signing_key(), msg, hashlib.sha256).hexdigest()
+
+
 def verify_email_hmac(
     token_id: uuid.UUID,
     user_id: uuid.UUID,
@@ -65,6 +70,19 @@ def verify_password_reset_hmac(
     signature_hex: str,
 ) -> bool:
     expected = sign_password_reset(token_id, user_id, expires_at)
+    try:
+        return hmac.compare_digest(expected, signature_hex.strip().lower())
+    except (TypeError, ValueError):
+        return False
+
+
+def verify_email_change_hmac(
+    token_id: uuid.UUID,
+    user_id: uuid.UUID,
+    expires_at: datetime,
+    signature_hex: str,
+) -> bool:
+    expected = sign_email_change(token_id, user_id, expires_at)
     try:
         return hmac.compare_digest(expected, signature_hex.strip().lower())
     except (TypeError, ValueError):

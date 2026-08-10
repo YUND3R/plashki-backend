@@ -27,7 +27,20 @@ curl http://IP:8000/health
 
 `/dev/*` доступен только при `ENVIRONMENT=local` и не должен использоваться на VPS.
 Для публичного Nginx включи HTTPS redirect, `server_tokens off`, HSTS после проверки всех
-поддоменов и ограничение запросов (`limit_req`) для auth-роутов.
+поддоменов и ограничение запросов. Production compose публикует API только на `127.0.0.1`;
+Nginx должен проксировать на этот адрес и быть единственной внешней точкой входа:
+
+```nginx
+limit_req_zone $binary_remote_addr zone=auth:10m rate=10r/m;
+
+location ~ ^/auth/(login|register|forgot-password|resend-verification)$ {
+    limit_req zone=auth burst=10 nodelay;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_pass http://127.0.0.1:8000;
+}
+```
 
 ## Production
 

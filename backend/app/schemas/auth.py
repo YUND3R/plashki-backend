@@ -20,6 +20,16 @@ class ForgotPasswordBody(BaseModel):
     email: str = Field(min_length=3, max_length=255)
 
 
+class ChangeEmailRequestBody(BaseModel):
+    new_email: str = Field(min_length=3, max_length=55)
+    current_password: str = Field(min_length=1, max_length=128)
+
+
+class ChangeEmailConfirmBody(BaseModel):
+    token_id: uuid.UUID
+    signature: str = Field(min_length=64, max_length=64)
+
+
 class ResetPasswordBody(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
