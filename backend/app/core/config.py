@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     )
 
     expose_openapi: bool = Field(
-        default=False,
+        default=True,
         validation_alias=AliasChoices("EXPOSE_OPENAPI"),
     )
 
